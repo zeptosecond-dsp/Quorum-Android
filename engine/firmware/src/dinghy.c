@@ -257,6 +257,7 @@ typedef struct {
 #ifdef QUORUM_ANDROID
     uint32_t gmat[NGS];                         /* the gate matrix: bit d = a pin to destination d */
     egp_t eg[NEG];                              /* (Android) the envelopes: saved after the matrices */
+    uint8_t sq_stop[NSEQ];                      /* (Android) a slew sequencer stopped (0: running, as before) */
 #else
     uint16_t gmat[NGS];                         /* the gate matrix: bit d = a pin to destination d */
 #endif
@@ -860,8 +861,19 @@ static void seq_block(void)
             if (st != cur) seq_enter(n, st);
             else sq_step[n] = cur;
         } else {
+#ifdef QUORUM_ANDROID
+            /* (Android) no gate: its own clock, last of all: the master clock every /n (CLOCK 0..10), or its own rate
+             * (11..138: 0.05 .. 12 steps a second); stopped, it holds */
+            static uint32_t sq_ph[NSEQ];
+            uint32_t go;
+            if (gpin) go = ((adv >> n & 1u) && !(sq_adv_prev >> n & 1u)) || (q->chain && n && (sq_wrap >> (n - 1u) & 1u));
+            else if (P.sq_stop[n]) go = 0;
+            else if (q->div <= 10u) go = tick && stp % DIVS[q->div] == 0u;
+            else { uint32_t ph = sq_ph[n] + (uint32_t)Q_GRID_X100[(q->div - 11u) & 127u] * 31168u; go = ph < sq_ph[n]; sq_ph[n] = ph; }
+#else
             uint32_t go = gpin ? ((adv >> n & 1u) && !(sq_adv_prev >> n & 1u)) || (q->chain && n && (sq_wrap >> (n - 1u) & 1u))
                                : tick && stp % DIVS[q->div % 11u] == 0u;   /* (no gate: the master clock) */
+#endif
             if ((rst >> n & 1u) && !(sq_rst_prev >> n & 1u)) seq_enter(n, 0);
             else if (go) {
                 uint32_t nx;
@@ -1795,7 +1807,7 @@ enum { F_INT, F_SLEW, F_TILT, F_STR, F_PCT, F_GMODE, F_GRATE, F_MUT, F_ONOFF, F_
        F_DEC, F_FALL, F_SER, F_LSRC, F_OP, F_ROUTE, F_SRULE, F_POINT, F_WIDTH, F_SOFT, F_PMODE, F_FREQ, F_RES, F_BW,
        F_PAN, F_SEMI, F_CENT, F_CLK, F_TEMPO, F_PHOS, F_BRIGHT, F_BITS, F_TUN, F_SCL, F_SROOT, F_COUNT, F_SPACE, F_TPAT,
        F_GOP, F_GMODE2, F_RATE, F_DUTY, F_FGT, F_CURVE, F_FMODE, F_SSGIN, F_DEPTH, F_QRATE, F_STEPN, F_SDIR, F_SADDR,
-       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_NONE };   /* (F_SCAN, F_DARK:
+       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_SCLK, F_NONE };   /* (F_SCAN, F_DARK:
        Android) */
 typedef struct { const char *name; uint8_t *p; int16_t lo, hi; uint8_t fmt, step; } kn_t;
 #ifdef QUORUM_ANDROID
@@ -1885,7 +1897,11 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
         if (!bk) { kn_set(0, "STEP", c, 0, 7, F_STEPN, 1); kn_set(1, "VALUE", &q->val[*c & 7u], 0, 127, F_VEL, 2);
                    kn_set(2, "GATE", &q->gate[*c & 7u], 0, 1, F_ONOFF, 1); kn_set(3, "LENGTH", &q->len, 1, 8, F_INT, 1); }
         else { kn_set(0, "DIR", &q->dir, 0, 2, F_SDIR, 1); kn_set(1, "SLEW", &q->slew, 0, 127, F_INT, 2);
+#ifdef QUORUM_ANDROID
+               kn_set(2, "CLOCK", &q->div, 0, 138, F_SCLK, 1); kn_set(3, "CHAIN", &q->chain, 0, 1, F_ONOFF, 1); }
+#else
                kn_set(2, "CLOCK", &q->div, 0, 10, F_SADDR, 1); kn_set(3, "CHAIN", &q->chain, 0, 1, F_ONOFF, 1); }
+#endif
     } else if (pg == PG_FX) {
         if (sb == 0u) { phx_t *q = &P.ph;
             if (!bk) { kn_set(0, "RATE", &q->rate, 0, 127, F_PHRATE, 1); kn_set(1, "DEPTH", &q->depth, 0, 127, F_INT, 2);
@@ -2020,6 +2036,8 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
 #ifdef QUORUM_ANDROID
     case F_SCAN: s_int(s, ASET_LINES[v % 5]); break;
     case F_NOTE: s_note(s, (uint32_t)v); break;
+    case F_SCLK: if (v <= 10) { s_cat(s, P.clk_midi ? "MIDI/" : "MAST/"); s_int(s, DIVS[v]); }   /* (a slew sequencer's own) */
+                 else { uint32_t x = Q_GRID_X100[(v - 11) & 127]; s_dec(s, x, 100u, x < 1000u ? 2u : 1u); s_cat(s, "/S"); } break;
     case F_EGMODE: { static const char *const M[3] = {"TRIG", "GATE", "CYCLE"}; s_cat(s, M[v % 3]); } break;
     case F_EGLEN: if (v < (int32_t)EG_NFREE) { uint32_t cs = EG_LEN_CS[v]; if (cs < 1000u) s_dec(s, cs, 100u, 2u); else s_int(s, (int32_t)(cs / 100u)); s_cat(s, "S"); }
                   else { s_int(s, EG_LEN_STEPS[(v - (int32_t)EG_NFREE) % (int32_t)(EG_NLEN - EG_NFREE)]); s_cat(s, " STEP"); } break;
@@ -2726,7 +2744,13 @@ static void draw_seq(void)                      /* a sequencer: its steps as bar
         if (md == 2u) { s_cat(s, "ADDR < ");
             for (k = 0; k < NSRC && c < 3u; k++) if (P.dep[k][D_SQ1 + n]) { if (c++) s_cat(s, " "); if (P.dep[k][D_SQ1 + n] < 0) s_cat(s, "-"); src_name(s, k); } }
         else if (md == 1u) { s_cat(s, "ADV < "); gins(s, GD_SQA1 + n); }
+#ifdef QUORUM_ANDROID
+        else if (P.sq_stop[n]) s_cat(s, "STOPPED");
+        else if (q->div <= 10u) { s_cat(s, P.clk_midi ? "MIDI CLOCK /" : "CLOCK /"); s_int(s, DIVS[q->div]); }
+        else { uint32_t x = Q_GRID_X100[(q->div - 11u) & 127u]; s_cat(s, "OWN CLOCK "); s_dec(s, x, 100u, x < 1000u ? 2u : 1u); s_cat(s, "/S"); }
+#else
         else { s_cat(s, P.clk_midi ? "MIDI CLOCK /" : "CLOCK /"); s_int(s, DIVS[q->div % 11u]); }
+#endif
         cv_text(4, 122, &FONT_S, s, PH_MID);
         s[0] = 0;
         if (md != 2u) { s_cat(s, "RST < "); gins(s, GD_SQR1 + n); }
@@ -2735,7 +2759,7 @@ static void draw_seq(void)                      /* a sequencer: its steps as bar
     cv_text(4, 140, &FONT_S, s, PH_LO);
     knob_row(0);
 #ifdef QUORUM_ANDROID
-    CMDS(C_BANK, C_GATE);
+    CMDS(C_BANK, C_GATE, C_SQRUN);
 #else
     footer("OCT SEQ SEL BANK PLAY GATE");
 #endif
@@ -3295,7 +3319,12 @@ static void patch_clean(void)                   /* a loaded patch's values in ra
     for (k = 0; k < NSSG; k++) { if (P.ssg[k].input > NSRC) P.ssg[k].input = 0; P.ssg[k].slew &= 127u; }
     for (k = 0; k < NSEQ; k++) { seq_t *q = &P.seq[k]; uint32_t i;
         for (i = 0; i < 8u; i++) { q->val[i] &= 127u; q->gate[i] &= 1u; }
+#ifdef QUORUM_ANDROID
+        q->len = (uint8_t)cl(q->len, 1, 8); q->dir %= 3u; q->slew &= 127u; if (q->div > 138u) q->div = 0; q->chain &= 1u;
+        P.sq_stop[k] &= 1u; }
+#else
         q->len = (uint8_t)cl(q->len, 1, 8); q->dir %= 3u; q->slew &= 127u; q->div %= 11u; q->chain &= 1u; }
+#endif
     P.ph.rate &= 127u; P.ph.depth &= 127u; P.ph.centre &= 127u; P.ph.fb &= 127u; P.ph.stages = (uint8_t)cl(P.ph.stages, 1, 8);
     P.ph.ret &= 127u; P.ph.slow &= 1u;
     P.dl.fb &= 127u; P.dl.cross &= 127u; P.dl.crush = (uint8_t)cl(P.dl.crush, 0, 10); P.dl.ret &= 127u;
@@ -3484,6 +3513,7 @@ typedef struct {
 #ifdef QUORUM_ANDROID
     uint16_t gm_hi[32];                         /* (Android, ver 2) the gate matrix's destinations 16..31 */
     egp_t eg[NEG];                              /* (Android, ver 2) the envelopes */
+    uint8_t sq_stop[NSEQ];                      /* (Android, ver 2) the slew sequencers stopped (older: 0, running) */
 #endif
 } pdata_t;
 #ifdef QUORUM_ANDROID
@@ -3581,6 +3611,7 @@ static int patch_save(uint32_t slot)            /* 1..16 */
     q->ver = 2;
     for (k = 0; k < NGS; k++) q->gm_hi[k] = (uint16_t)(P.gmat[k] >> 16);
     for (k = 0; k < NEG; k++) q->eg[k] = P.eg[k];
+    for (k = 0; k < NSEQ; k++) q->sq_stop[k] = P.sq_stop[k];
 #endif
     q->nscal = (uint16_t)PSCAL; q->nsrc = NSRC; q->ndst = NDST; q->ngs = NGS;
     for (k = 0; k < PSCAL; k++) q->scal[k] = ((const uint8_t *)&P)[k];
@@ -3617,6 +3648,7 @@ static int patch_load(uint32_t slot)            /* 0 = INIT, P_RANDOM = roll the
     if (q->ver >= 2u) {                         /* (an older patch: INIT's envelopes, nothing pinned past 16) */
         for (k = 0; k < NGS && k < q->ngs && k < 32u; k++) P.gmat[k] |= (uint32_t)q->gm_hi[k] << 16;
         for (k = 0; k < NEG; k++) P.eg[k] = q->eg[k];
+        for (k = 0; k < NSEQ; k++) P.sq_stop[k] = q->sq_stop[k];
     }
 #endif
     patch_clean();

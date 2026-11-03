@@ -376,7 +376,8 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     case C_ROOT: s_cat(s, "ROOT "); s_note(s, P.root); break;
     case C_N: s_cat(s, "N "); s_int(s, P.sn); break;
     case C_KEYS: s_cat(s, P.kbd[(sub - 1u) & 1u] ? "KEYS ON" : "KEYS OFF"); break;
-    case C_GATE: s_cat(s, P.seq[sub % NSEQ].gate[scur[sub % NSEQ] & 7u] ? "STEP GATE ON" : "STEP GATE OFF"); break;
+    case C_GATE: s_cat(s, P.seq[sub % NSEQ].gate[scur[sub % NSEQ] & 7u] ? "GATE ON" : "GATE OFF"); break;
+    case C_SQRUN: s_cat(s, P.sq_stop[sub % NSEQ] ? "RUN OFF" : "RUN ON"); break;
     case C_REC: s_cat(s, ks_rec ? "REC ON" : "REC"); break;
     case C_AUTO: s_cat(s, ks_auto ? "AUTO ON" : "AUTO"); break;
     case C_CLEAR: s_cat(s, ks_clr && fm1_ms - t_clr < 2000u ? "CLEAR?" : "CLEAR"); break;
@@ -419,6 +420,7 @@ static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the
     case C_FREE: P.gen[sub & 3u].mode ^= 1u; dirty_partials = 1; break;
     case C_PHSLOW: P.ph.slow ^= 1u; break;
     case C_RVRATE: P.rv.rate ^= 1u; dirty_partials = 1; break;
+    case C_SQRUN: P.sq_stop[sub % NSEQ] ^= 1u; break;   /* (its own clock only: a gate or an address still moves it) */
     case C_PATHA: qsel = 0; break;
     case C_LOCK: P.lock ^= 1u; after_change(PG_GRID, sub, 3u, 1u); break;   /* (as bank 2's K4: B in step with A) */
     case C_PATHB: qsel = 1; break;
