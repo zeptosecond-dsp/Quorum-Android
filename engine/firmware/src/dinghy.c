@@ -1696,12 +1696,35 @@ static const char *const PG_NAME[NPG] = {"INDEX", "VOICE", "GRIDS", "STRIKE", "S
 #endif
                                          "MOD MATRIX", "GATE MATRIX", "FX", "GLOBAL", "DISK"};
 static const uint8_t PG_READY[NPG] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+#ifdef QUORUM_ANDROID
+/* (Android) the Index: the mod and gate matrices share one entry (MATRICES: tap the title, or OCT, for the other), which
+ * frees one for the keyboard sequencer, a page of its own (inside, still the Sequencers page's last part) */
+typedef struct { uint8_t pg, sb; const char *num, *name; } idx_t;
+static const idx_t IDX[NPG] = {{PG_INDEX, 0, "1", "INDEX"}, {PG_VOICE, 0, "2", "VOICE"}, {PG_GRID, 0, "3", "GRIDS"},
+    {PG_STRIKE, 0, "4", "STRIKE"}, {PG_SPLIT, 0, "5", "SPLIT + FILTERS"}, {PG_LOGIC, 0, "6", "LOGIC"},
+    {PG_SEQ, 0, "7", "SEQUENCERS"}, {PG_FG, 0, "8", "MODULATORS"}, {PG_MOD, 0, "9", "MATRICES"},
+    {PG_SEQ, 3, "X", "KEY SEQUENCER"}, {PG_FX, 0, "F", "FX"}, {PG_GLOBAL, 0, "G", "GLOBAL"}, {PG_PATCH, 0, "D", "DISK"}};
+typedef char idx_keys_is_nseq[NSEQ == 3u ? 1 : -1];   /* (the KEY SEQUENCER entry's part: NSEQ) */
+static uint32_t idx_of(uint32_t pg, uint32_t sb)   /* the Index entry a page (and part) is under */
+{
+    if (pg == PG_GMAT) return 8u;
+    if (pg == PG_SEQ && sb >= NSEQ) return 9u;
+    return pg;
+}
+static const char *page_num(uint32_t pg, uint32_t sb)   /* the number the header shows: the Index entry's */
+{
+    return IDX[idx_of(pg, sb)].num;
+}
+#endif
 static uint32_t page = PG_INDEX, sub, bank;     /* sub: OCT's choice (grid, strike, split part); bank: SEL's */
 static uint32_t cpu_avg, cpu_peak, cpu_max;     /* 1/10 per cent of the 5.8 ms */
 #define BUDGET_US 5805u
 
 static uint32_t page_subs(uint32_t pg)
 {
+#ifdef QUORUM_ANDROID
+    if (pg == PG_SEQ) return NSEQ;              /* (the keyboard sequencer: a page of its own) */
+#endif
     if (pg == PG_GRID) return 2u;
     if (pg == PG_STRIKE) return 2u;
     if (pg == PG_LOGIC) return 4u;
@@ -1968,12 +1991,20 @@ static void header_title(char *s)               /* the header's text before the 
 {
     s[0] = 0;
     s_cat(s, "PAGE ");
+#ifdef QUORUM_ANDROID
+    s_cat(s, page_num(page, sub));
+#else
     s_cat(s, PG_NUM[page]);
+#endif
     s_cat(s, " ");
     if (page == PG_GRID) s_cat(s, sub ? "GRID B" : "GRID A");
     else if (page == PG_STRIKE) { s_cat(s, "STRIKE "); s_int(s, (int32_t)sub + 1); }
     else if (page == PG_LOGIC) { s_cat(s, "LOGIC GEN "); s_int(s, (int32_t)sub + 1); }
     else if (page == PG_SEQ && sub >= NSEQ) s_cat(s, "KEY SEQUENCER");
+#ifdef QUORUM_ANDROID
+    else if (page == PG_MOD) s_cat(s, "MATRICES: MOD");
+    else if (page == PG_GMAT) s_cat(s, "MATRICES: GATE");
+#endif
     else if (page == PG_SEQ) { s_cat(s, "SEQ "); s_int(s, (int32_t)sub + 1); }
     else if (page == PG_FG) { if (sub < NFG) { s_cat(s, "FUNC GEN "); s_int(s, (int32_t)sub + 1); }
                               else if (sub < NFG + NSSG) { s_cat(s, "SSG "); s_int(s, (int32_t)(sub - NFG) + 1); }
@@ -2038,7 +2069,11 @@ static void draw_index(uint32_t cur)
         tgt_add(0, BODY_Y + y - 1, 240, 16, T_PAGE, i);
 #endif
         if (i == cur) { cv_rect(0, y - 1, 240, 16, PH_SEL); c = PH_HI; cv_text(4, y, &FONT_S, ">", PH_HI); }
+#ifdef QUORUM_ANDROID
+        s_cat(s, IDX[i].num); s_cat(s, "   "); s_cat(s, IDX[i].name);
+#else
         s_cat(s, PG_NUM[i]); s_cat(s, "   "); s_cat(s, PG_NAME[i]);
+#endif
         cv_text(20, y, &FONT_S, s, c);
         if (i == cur && (fm1_ms / 400u) & 1u) cv_rect(20 + text_w(&FONT_S, s) + 4, y + 1, 8, 14, PH_HI);
         if (!PG_READY[i]) cv_text(196, y, &FONT_S, "--", PH_LO);
@@ -3584,7 +3619,11 @@ static void app_main(void)
         shift = (fm1_in.buttons >> BTN_SEL) & 1u;
         {                                       /* page buttons, as Arcturus */
             uint32_t np = page;
+#ifdef QUORUM_ANDROID
+            if (b & (1u << BTN_HOME)) { if (page != PG_INDEX) icur = idx_of(page, sub); np = PG_INDEX; }
+#else
             if (b & (1u << BTN_HOME)) { if (page != PG_INDEX) icur = page; np = PG_INDEX; }
+#endif
             if (b & (1u << BTN_EDIT)) np = shift ? PG_SPLIT : PG_VOICE;
             if (b & (1u << BTN_LFO)) np = shift ? PG_LOGIC : PG_GRID;
             if (b & (1u << BTN_ENV)) np = shift ? PG_FG : PG_STRIKE;
@@ -3602,6 +3641,12 @@ static void app_main(void)
             if (np != page) { page = np; sub = 0; bank = 0; hdr = 1; b &= ~((1u << BTN_SEL) | (1u << BTN_SAVE)); p_ren = 0; pconf = PC_NONE; pmsg = ""; }
         }
         nsub = page_subs(page);
+#ifdef QUORUM_ANDROID
+        if ((page == PG_MOD || page == PG_GMAT) && (b & ((1u << BTN_OCT_UP) | (1u << BTN_OCT_DOWN)))) {
+            page = page == PG_MOD ? PG_GMAT : PG_MOD; sub = 0; bank = 0; hdr = 1;   /* MATRICES: the other one */
+        }
+        if (page == PG_SEQ && sub >= NSEQ) nsub = 1u;   /* (the keyboard sequencer: its own page) */
+#endif
         if (nsub > 1u) {                        /* OCT: the next / previous thing on this page */
             if (b & (1u << BTN_OCT_UP)) { sub = (sub + 1u) % nsub; bank = 0; hdr = 1; }
             if (b & (1u << BTN_OCT_DOWN)) { sub = (sub + nsub - 1u) % nsub; bank = 0; hdr = 1; }
@@ -3609,7 +3654,11 @@ static void app_main(void)
         nb = page_banks(page, sub);
         if (page == PG_INDEX) {
             if ((e = fm1_enc_take(ENC_SELECT)) != 0) icur = (uint32_t)cl((int32_t)icur + e, 1, NPG - 1);
+#ifdef QUORUM_ANDROID
+            if (b & (1u << BTN_SEL)) { page = IDX[icur].pg; sub = IDX[icur].sb; bank = 0; hdr = 1; }
+#else
             if (b & (1u << BTN_SEL)) { page = icur; sub = 0; bank = 0; hdr = 1; }
+#endif
         } else if (b & (1u << BTN_SEL)) {
             if (nb > 1u) { bank = (bank + 1u) % nb; hdr = 1; }
             else if (page == PG_VOICE) { P.anchor ^= 1u; dirty_partials = 1; }

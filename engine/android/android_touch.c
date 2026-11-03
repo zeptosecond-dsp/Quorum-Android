@@ -75,13 +75,13 @@ static void header_tap(float x, uint32_t *b)
     title_w = 4 + text_w(&FONT_S, s);
     {
         char p[12] = "PAGE ";
-        s_cat(p, PG_NUM[page]);
+        s_cat(p, page_num(page, sub));
         page_w = 4 + text_w(&FONT_S, p) + 6;
     }
     if (x < (float)page_w) { if (page != PG_INDEX) *b |= 1u << BTN_HOME; return; }
     if (page == PG_INDEX) return;
     if (page_banks(page, sub) > 1u && x >= (float)title_w) { *b |= 1u << BTN_SEL; return; }
-    if (page_subs(page) > 1u) *b |= 1u << BTN_OCT_UP;
+    if (page == PG_MOD || page == PG_GMAT || (page_subs(page) > 1u && !(page == PG_SEQ && sub >= NSEQ))) *b |= 1u << BTN_OCT_UP;
 }
 
 static void value_tap(uint32_t knob, const tgt_t *t)
@@ -372,7 +372,7 @@ static void touch_frame(uint32_t *b)
             if (hit->kind == T_PAGE && page == PG_INDEX) {
                 icur = hit->a;                  /* the Index opens it, as SEL does (set here, not as a SEL press:
                                                    a press would carry on into the new page, the Disk's "load") */
-                page = icur; sub = 0; bank = 0; hdr_force = 1;
+                page = IDX[icur].pg; sub = IDX[icur].sb; bank = 0; hdr_force = 1;
                 bar_close();
             } else if (hit->kind == T_OPT) {    /* a phone-only switch */
                 bar_close();
