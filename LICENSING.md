@@ -3,8 +3,9 @@
 Quorum for Android is free software under the GNU General Public License, version 3 only (`GPL-3.0-only`, full text
 in `LICENSE`).
 
-- **The engine** (`engine/firmware/`) is Quorum's firmware, copied unchanged from
-  [zeptosecond-dsp/Quorum](https://github.com/zeptosecond-dsp/Quorum) but for the platform switch in `platform.c`.
+- **The engine** (`engine/firmware/`) is Quorum's firmware, forked from
+  [zeptosecond-dsp/Quorum](https://github.com/zeptosecond-dsp/Quorum); the Android changes in it (marked
+  `QUORUM_ANDROID`) are Zeptosecond DSP's, written by machine (Claude, by Anthropic) with human guidance.
   Its authorship is as Quorum's own licensing notes give it, reproduced below.
 - **The Android port** (`engine/android/`, `engine/tests/`, `engine/sync_from_quorum.sh`, `app/`, the build files) is
   by Zeptosecond DSP, written by machine (Claude, by Anthropic) with human guidance. `engine/android/android_platform.c`

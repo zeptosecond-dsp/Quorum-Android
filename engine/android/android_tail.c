@@ -8,14 +8,15 @@
  * The ramp and the brightness come from the same VDU settings (Global page). */
 
 /* intensity: 240 x 240 bytes; rgba: the phosphor ramp, 256 x RGBA (full 8-bit, from the same table crt_build uses);
- * gain: the tube's gain in the middle and in the corners (crt_build's gc, ge) */
+ * gain: the tube's gain in the middle and in the corners (crt_build's gc, ge), then the scanlines (Global: VDU): lines a
+ * screen height, darkness in per cent */
 void quorum_crt(uint8_t *intensity, uint8_t *rgba, int32_t *gain)
 {
     const uint8_t (*K)[4] = PHOS_K[gset.phos < NPHOS ? gset.phos : 0u];
     uint32_t i, k, br = gset.bright > 10u ? 10u : gset.bright;
     uint32_t gc = 116u + br * 20u, ge = gc * br * br * 90u / 10000u;
     if (intensity) memcpy(intensity, crt_cmb, sizeof crt_cmb);
-    if (gain) { gain[0] = (int32_t)gc; gain[1] = (int32_t)ge; }
+    if (gain) { gain[0] = (int32_t)gc; gain[1] = (int32_t)ge; gain[2] = ASET_LINES[aset.lines % 5u]; gain[3] = (int32_t)aset.dark * 7; }
     if (!rgba) return;
     for (i = 0; i < 256u; i++) {
         uint32_t a, z, f;

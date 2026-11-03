@@ -1366,6 +1366,9 @@ static void cv_out(uint32_t y0)                 /* the canvas (240 wide) through
 {
     uint32_t w = cv_w, h = cv_h, x, y, r0, r1, oy, o0, o1;
     uint8_t hb[3][240];                         /* the halo's rows (a 3 x 3 box, rows first), rolling */
+#ifdef QUORUM_ANDROID
+    if (y0 == BODY_Y && h == BODY_H && w == 240u) touch_draw();   /* (the slide bar: in the picture, in the tube) */
+#endif
     if (w != 240u || y0 >= 240u) { cv_blit(0, y0); return; }
     if (y0 + h > 240u) h = 240u - y0;
     for (y = 0; y < h; y++) {                   /* 1: the strip into the screen's picture */
@@ -1522,7 +1525,8 @@ enum { F_INT, F_SLEW, F_TILT, F_STR, F_PCT, F_GMODE, F_GRATE, F_MUT, F_ONOFF, F_
        F_DEC, F_FALL, F_SER, F_LSRC, F_OP, F_ROUTE, F_SRULE, F_POINT, F_WIDTH, F_SOFT, F_PMODE, F_FREQ, F_RES, F_BW,
        F_PAN, F_SEMI, F_CENT, F_CLK, F_TEMPO, F_PHOS, F_BRIGHT, F_BITS, F_TUN, F_SCL, F_SROOT, F_COUNT, F_SPACE, F_TPAT,
        F_GOP, F_GMODE2, F_RATE, F_DUTY, F_FGT, F_CURVE, F_FMODE, F_SSGIN, F_DEPTH, F_QRATE, F_STEPN, F_SDIR, F_SADDR,
-       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_NONE };
+       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_NONE };   /* (F_SCAN, F_DARK:
+       Android) */
 typedef struct { const char *name; uint8_t *p; int16_t lo, hi; uint8_t fmt, step; } kn_t;
 static kn_t KN[4];
 static void kn_set(uint32_t i, const char *name, void *p, int32_t lo, int32_t hi, uint32_t fmt, uint32_t step)
@@ -1611,7 +1615,11 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
     } else if (pg == PG_GLOBAL) {
         if (sb == 0u) { kn_set(0, "TUNING", &P.tun, 0, NTUN - 1, F_TUN, 1); kn_set(1, "SCALE", &P.scl, 0, TUN_NSCL[P.tun % NTUN] - 1, F_SCL, 1);
                         kn_set(2, "ROOT", &P.sroot, 0, 11, F_SROOT, 1); kn_set(3, "GLIDE", &P.glide[qsel & 1u], 0, 127, F_INT, 4); }
-        else if (sb == 1u) { kn_set(0, "PHOS", &gset.phos, 0, NPHOS - 1, F_PHOS, 1); kn_set(1, "BRIGHT", &gset.bright, 0, 10, F_BRIGHT, 1); }
+        else if (sb == 1u) { kn_set(0, "PHOS", &gset.phos, 0, NPHOS - 1, F_PHOS, 1); kn_set(1, "BRIGHT", &gset.bright, 0, 10, F_BRIGHT, 1);
+#ifdef QUORUM_ANDROID
+                             kn_set(2, "LINES", &aset.lines, 0, 4, F_SCAN, 1); kn_set(3, "DARK", &aset.dark, 0, 10, F_DARK, 1);
+#endif
+        }
         else { kn_set(0, "ENG VER", &P.engver, 1, 2, F_BITS, 1); kn_set(1, "CLOCK", &P.clk_midi, 0, 1, F_CLK, 1);
                }
     }
@@ -1708,15 +1716,20 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_BITS: s_cat(s, v == 1 ? "V1 8B" : "V2 12B"); break;
     case F_TUN: s_cat(s, TUN_NAME[v % NTUN]); break;
     case F_SCL: s_cat(s, SCL_NAME[TUN_SCL0[P.tun % NTUN] + (uint32_t)v]); break;
+#ifdef QUORUM_ANDROID
+    case F_SCAN: s_int(s, ASET_LINES[v % 5]); break;
+    case F_DARK: s_int(s, v * 7); s_cat(s, "%"); break;
+#endif
     case F_SROOT: { static const char *const NN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}; s_cat(s, NN[v % 12]); } break;
     default: break;
     }
 }
 
 static const char *hmsg = "";
-static void draw_header(void)
+static void header_title(char *s)               /* the header's text before the bank (Android: also its tap regions) */
 {
-    char s[40] = "PAGE ";
+    s[0] = 0;
+    s_cat(s, "PAGE ");
     s_cat(s, PG_NUM[page]);
     s_cat(s, " ");
     if (page == PG_GRID) s_cat(s, sub ? "GRID B" : "GRID A");
@@ -1731,6 +1744,11 @@ static void draw_header(void)
     else if (page == PG_GLOBAL) s_cat(s, sub == 0u ? "GLOBAL: TUNING" : sub == 1u ? "GLOBAL: VDU" : "GLOBAL: ENGINE");
     else if (page == PG_FX) { static const char *const FN[4] = {"FX: PHASER", "FX: DELAY", "FX: REVERB", "FX: ROUTING"}; s_cat(s, FN[sub & 3u]); }
     else s_cat(s, PG_NAME[page]);
+}
+static void draw_header(void)
+{
+    char s[40];
+    header_title(s);
     if (page_banks(page, sub) > 1u) { s_cat(s, "  BANK "); s_int(s, (int32_t)bank + 1); }
     if (*hmsg) { s[0] = 0; s_cat(s, hmsg); }
     cv_begin(240, BODY_Y, PH_BG);
@@ -1755,6 +1773,9 @@ static void knob_row(uint32_t pathk)            /* K1..K4 along the bottom: the 
     for (i = 0; i < 4u; i++) {
         int32_t x = 2 + (int32_t)i * 60;
         if (KN[i].fmt == F_NONE) continue;
+#ifdef QUORUM_ANDROID
+        tgt_add((int32_t)i * 60, BODY_Y + 161, 60, 40, T_KNOB, i);
+#endif
         cv_text(x, 164, &FONT_S, KN[i].name, PH_LO);
         kn_text(s, &KN[i], pathk);
         cv_text(x, 181, &FONT_S, s, PH_HI);
@@ -1772,13 +1793,20 @@ static void draw_index(uint32_t cur)
         uint16_t c = PG_READY[i] ? PH_MID : PH_LO;
         if (i == 0u) continue;
         y -= 16;
+#ifdef QUORUM_ANDROID
+        tgt_add(0, BODY_Y + y - 1, 240, 16, T_PAGE, i);
+#endif
         if (i == cur) { cv_rect(0, y - 1, 240, 16, PH_SEL); c = PH_HI; cv_text(4, y, &FONT_S, ">", PH_HI); }
         s_cat(s, PG_NUM[i]); s_cat(s, "   "); s_cat(s, PG_NAME[i]);
         cv_text(20, y, &FONT_S, s, c);
         if (i == cur && (fm1_ms / 400u) & 1u) cv_rect(20 + text_w(&FONT_S, s) + 4, y + 1, 8, 14, PH_HI);
         if (!PG_READY[i]) cv_text(196, y, &FONT_S, "--", PH_LO);
     }
+#ifdef QUORUM_ANDROID
+    cv_text(4, 196, &FONT_S, "TAP A PAGE TO OPEN IT", PH_LO);
+#else
     cv_text(4, 196, &FONT_S, "SELECT: CHOOSE  SEL: OPEN", PH_LO);
+#endif
     cv_out(BODY_Y);
 }
 
@@ -2318,6 +2346,39 @@ static void draw_tuning(void)                   /* GLOBAL: TUNING, as Arcturus S
     cv_text(4, 200, &FONT_S, "SELECT PATH K4 GLIDE PLAY Q", PH_LO);
     cv_out(BODY_Y);
 }
+#ifdef QUORUM_ANDROID
+static void draw_vdu(void)                      /* GLOBAL: VDU (Android): phosphor, brightness, the scanlines, a test card */
+{
+    static const char *const NAME[4] = {"PHOSPHOR", "BRIGHTNESS", "SCANLINES", "DARKNESS"};
+    char s[24];
+    uint32_t i;
+    cv_begin(240, BODY_H, PH_BG);
+    knobs_for(PG_GLOBAL, 1u, 0u);
+    for (i = 0; i < 4u; i++) {
+        int32_t y = 2 + (int32_t)i * 18;
+        cv_text(4, y, &FONT_S, NAME[i], PH_LO);
+        kn_text(s, &KN[i], 0);
+        cv_text(108, y, &FONT_S, s, PH_HI);
+        tgt_add(0, BODY_Y + y - 1, 240, 18, T_KNOB, i);
+    }
+    for (i = 0; i <= 10u; i++) cv_rect(160 + (int32_t)i * 7, 24, 5, 8, i <= gset.bright ? PH_MID : PH_LO);
+    for (i = 0; i <= 10u; i++) cv_rect(160 + (int32_t)i * 7, 60, 5, 8, i <= aset.dark ? PH_MID : PH_LO);
+    cv_rect(0, 75, 240, 1, PH_LO);
+    cv_rect(6, 82, 228, 1, PH_MID); cv_rect(6, 194, 228, 1, PH_MID);
+    cv_rect(6, 82, 1, 113, PH_MID); cv_rect(233, 82, 1, 113, PH_MID);
+    for (i = 1; i < 8u; i++) {
+        uint32_t k;
+        for (k = 84; k < 194u; k += 3u) cv_pset(6 + (int32_t)i * 29, (int32_t)k, PH_LO);
+        for (k = 8; k < 233u; k += 3u) if (i < 4u) cv_pset((int32_t)k, 82 + (int32_t)i * 28, PH_LO);
+    }
+    for (i = 0; i < 128u; i++)
+        cv_pset(120 + ((sine(i << 25) * 44) >> 15), 138 - ((sine((i << 25) + 0x40000000u) * 44) >> 15), PH_HI);
+    for (i = 0; i < 8u; i++) cv_rect(24 + (int32_t)i * 24, 124, 20, 28, RGB(0, 32 + i * 31, 0));
+    for (i = 0; i < 192u; i++) cv_pset(24 + (int32_t)i, 176 - ((sine(i * 0x05555555u) * 10) >> 15), PH_HI);
+    cv_text(2, 200, &FONT_S, "TAP A SETTING TO CHANGE IT", PH_LO);
+    cv_out(BODY_Y);
+}
+#else
 static void draw_vdu(void)                      /* GLOBAL: VDU, as Arcturus S6: phosphor, brightness, a test card */
 {
     char s[24] = "";
@@ -2344,6 +2405,7 @@ static void draw_vdu(void)                      /* GLOBAL: VDU, as Arcturus S6: 
     cv_text(2, 200, &FONT_S, "K1 PHOSPHOR  K2 BRIGHTNESS", PH_LO);
     cv_out(BODY_Y);
 }
+#endif
 static void draw_engine(void)                   /* GLOBAL: ENGINE: the hardware revision, the clock, the CPU */
 {
     char s[40];
@@ -2994,10 +3056,14 @@ static void after_change(uint32_t pg, uint32_t sb, uint32_t knob, uint32_t bk)
     if (pg == PG_GLOBAL && sb == 2u && knob >= 1u) t_half = fm1_ms;
     if (pg == PG_GRID && knob == 3u && bk == 1u) { t_halfb = t_half; half_b = half_n; }   /* (lockstep on or off: B in phase with A) */
     if (pg == PG_GLOBAL && sb == 0u && knob == 0u) P.scl = 0;    /* (a new tuning: its first scale) */
+#ifdef QUORUM_ANDROID
+    if (pg == PG_GLOBAL && sb == 1u && knob >= 2u) { aset_dirty = 1; t_aset = fm1_ms; }   /* (the phone's own: its file) */
+#endif
 }
+static uint32_t icur = PG_VOICE;                /* the Index's cursor (Android: a tap sets it) */
 static void app_main(void)
 {
-    uint32_t i, b, rel, icur = PG_VOICE, t_draw = 0, t_cpu = 0, t_batt = 0, t_push = 0, t_hist = 0, prev_keys = 0, prev_up = 0, hdr = 1;
+    uint32_t i, b, rel, t_draw = 0, t_cpu = 0, t_batt = 0, t_push = 0, t_hist = 0, prev_keys = 0, prev_up = 0, hdr = 1;
     hdr_force = 0;
     int32_t e;
     int skip;
@@ -3048,6 +3114,10 @@ static void app_main(void)
         clock_poll();
 
         b = fm1_input_edges(&rel);
+#ifdef QUORUM_ANDROID
+        touch_frame(&b);                        /* the finger: taps as the panel's own presses, or straight to a value */
+        if (aset_dirty && fm1_ms - t_aset > 1000u) { aset_dirty = 0; aset_save(); }
+#endif
         shift = (fm1_in.buttons >> BTN_SEL) & 1u;
         {                                       /* page buttons, as Arcturus */
             uint32_t np = page;
@@ -3285,6 +3355,9 @@ static void app_main(void)
         if (fm1_ms - t_draw >= 66u) {
             uint32_t blink = (fm1_ms / 250u) & 1u, row;
             t_draw = fm1_ms;
+#ifdef QUORUM_ANDROID
+            tgt_n = 0;                          /* (the page says again where its touchable things are) */
+#endif
             if (hdr || hdr_force) { hdr = 0; hdr_force = 0; draw_header(); }   /* (a new phosphor: the header too) */
             switch (page) {
             case PG_INDEX: draw_index(icur); break;

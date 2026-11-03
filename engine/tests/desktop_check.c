@@ -58,7 +58,7 @@ int main(int argc, char **argv)
     fclose(f);
     {                                           /* what the phone's tube gets: intensity, ramp, gain */
         static uint8_t in[240 * 240], ramp[1024];
-        int32_t gain[2];
+        int32_t gain[4];
         quorum_crt(in, ramp, gain);
         snprintf(name, sizeof name, "%s/crt.bin", out);
         f = fopen(name, "wb");

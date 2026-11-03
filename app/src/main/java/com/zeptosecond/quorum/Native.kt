@@ -27,8 +27,12 @@ object Native {
     /** The 240 x 240 screen as ARGB (the firmware's own tube, 16-bit colour). */
     @JvmStatic external fun screen(out: IntArray)
 
-    /** The tube's inputs, for [CrtView]: [intensity] 240 x 240 bytes and [ramp] 256 RGBA (direct buffers), [gain] 2. */
+    /** The tube's inputs, for [CrtView]: [intensity] 240 x 240 bytes and [ramp] 256 RGBA (direct buffers); [gain]
+     *  4: the tube's gain in the middle and the corners, scanlines a screen height, their darkness in per cent. */
     @JvmStatic external fun crt(intensity: java.nio.ByteBuffer, ramp: java.nio.ByteBuffer, gain: IntArray)
+
+    /** A finger on the screen: [act] 0 down, 1 move, 2 up; [x], [y] on the glass in the firmware's pixels (0..240). */
+    @JvmStatic external fun touch(act: Int, x: Float, y: Float)
 
     // the FM-1's ids (firmware/src/platform.c)
     const val BTN_OCT_DOWN = 0

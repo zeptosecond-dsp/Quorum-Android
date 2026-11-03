@@ -142,6 +142,18 @@ static void midi_send(uint32_t st, uint32_t d1, uint32_t d2) { (void)st; (void)d
 static void app_audio(int32_t *out, uint32_t n);
 static void app_main(void);
 
+#include "android_ui.h"                        /* touch targets, the phone's settings, the touch queue */
+static void aset_load(void)
+{
+    aset_t a;
+    if (q_load("android", -1, &a, sizeof a) == 0 && a.ver == 1u) {
+        aset = a;
+        if (aset.lines > 4u) aset.lines = 2;
+        if (aset.dark > 10u) aset.dark = 6;
+    }
+}
+static void aset_save(void) { q_save("android", -1, &aset, sizeof aset, SECTOR_MAX); }
+
 /* ------------------------------------------------------------------ the audio ring: the app's thread in, Oboe's out */
 #define RING 8192u                              /* frames (a power of two) */
 static int16_t q_ring[RING * 2u];
@@ -196,6 +208,7 @@ void quorum_start(const char *dir)
     started = 1;
     snprintf(q_dir, sizeof q_dir, "%s", dir ? dir : "");
     q_t0 = now_us();
+    aset_load();
     pthread_create(&t, NULL, q_thread, NULL);
     pthread_detach(t);
 }
@@ -246,4 +259,17 @@ void quorum_copy_screen(uint32_t *argb)
         uint32_t c = fb[i], r = (c >> 11) * 255u / 31u, g = (c >> 5 & 63u) * 255u / 63u, b = (c & 31u) * 255u / 31u;
         argb[i] = 0xFF000000u | r << 16 | g << 8 | b;
     }
+}
+
+/* a touch on the screen: act 0 down, 1 move, 2 up; x, y where it landed on the glass, in the firmware's pixels
+ * (0 .. 240). The tube bulges the picture, so what is drawn there is a little further out: the same sum as the
+ * shader (CrtView.kt), so the finger lands on what it sees. */
+void quorum_touch(int32_t act, float x, float y)
+{
+    float qx = x - 0.5f, qy = y - 0.5f, dx = qx - 120.0f, dy = qy - 120.0f, k2 = 30.0f * (dx * dx + dy * dy);
+    float sx = qx + dx * k2 / 16777216.0f + 0.5f, sy = qy + dy * k2 / 16777216.0f + 0.5f;
+    uint32_t w = atomic_load(&q_te_w);
+    if (w - atomic_load(&q_te_r) >= 128u) return;
+    q_te[w % 128u][0] = act; q_te[w % 128u][1] = (int32_t)(sx * 16.0f); q_te[w % 128u][2] = (int32_t)(sy * 16.0f);
+    atomic_store_explicit(&q_te_w, w + 1u, memory_order_release);
 }

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.zeptosecond.quorum
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.view.MotionEvent
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -15,19 +17,31 @@ import kotlin.math.roundToInt
 /**
  * The tube, on the GPU. The firmware draws each page as phosphor light (240 x 240 intensities, with its halo);
  * this does what the firmware's tube does to it on the FM-1 (the bulge, the dimming toward the corners, the phosphor's
- * colour ramp) at the phone's own resolution, with fine scanlines instead of one every other engine line.
+ * colour ramp) at the phone's own resolution, with fine scanlines instead of one every other engine line. It is also
+ * where the finger lands: touches go to the firmware, which knows what is drawn where.
  */
 class CrtView(context: Context) : GLSurfaceView(context) {
-    /** Scanlines: one dark line every [linePx] device pixels (0: the screen's height / 360), this much darker. */
-    @Volatile var linePx = 0
-    @Volatile var lineDim = 0.6f
-
     private val renderer = Renderer()
 
     init {
         setEGLContextClientVersion(2)
         setRenderer(renderer)
         renderMode = RENDERMODE_CONTINUOUSLY
+    }
+
+    /** The finger as a lightpen: where it lands, in the firmware's pixels; the firmware does the rest. */
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(ev: MotionEvent): Boolean {
+        val act = when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> 0
+            MotionEvent.ACTION_MOVE -> 1
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> 2
+            else -> return true                 // (a second finger: ignored; the lightpen is one)
+        }
+        val i = ev.findPointerIndex(ev.getPointerId(0))
+        if (i < 0) return true
+        Native.touch(act, ev.getX(i) * 240f / width, ev.getY(i) * 240f / height)
+        return true
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -38,7 +52,7 @@ class CrtView(context: Context) : GLSurfaceView(context) {
     private inner class Renderer : GLSurfaceView.Renderer {
         private val intensity = ByteBuffer.allocateDirect(240 * 240).order(ByteOrder.nativeOrder())
         private val ramp = ByteBuffer.allocateDirect(256 * 4).order(ByteOrder.nativeOrder())
-        private val gain = IntArray(2)
+        private val gain = IntArray(4)
         private val quad: FloatBuffer = ByteBuffer.allocateDirect(4 * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
             // clip x, y; engine x, y (y down)
             put(floatArrayOf(-1f, -1f, 0f, 240f, 1f, -1f, 240f, 240f, -1f, 1f, 0f, 0f, 1f, 1f, 240f, 0f)); position(0)
@@ -97,9 +111,10 @@ class CrtView(context: Context) : GLSurfaceView(context) {
             GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, 256, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, ramp)
             GLES20.glUniform1f(uGc, gain[0].toFloat())
             GLES20.glUniform1f(uGe, gain[1].toFloat())
-            val lp = if (linePx > 0) linePx else max(2, (viewH / 360f).roundToInt())
+            // the scanlines (Global: VDU): so many a screen height, whole device pixels apart (no moire)
+            val lp = max(2, (viewH / maxOf(1, gain[2]).toFloat()).roundToInt())
             GLES20.glUniform1f(uLinePx, lp.toFloat())
-            GLES20.glUniform1f(uLineDim, lineDim)
+            GLES20.glUniform1f(uLineDim, 1f - gain[3].coerceIn(0, 100) / 100f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         }
