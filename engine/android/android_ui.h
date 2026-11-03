@@ -5,9 +5,10 @@
  * Touch targets: as a page draws itself it says where its touchable things are (a knob's readout, an Index line);
  * a tap goes to whatever is under the finger. The list is rebuilt every time the page is drawn. */
 
-enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT };   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the page); a
-                                                   Disk file (a = its slot); a crosspoint of the mod or gate matrix
-                                                   (a = the source, b = the destination as the page orders them) */
+enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT };   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
+                                                   page); a Disk file (a = its slot); a crosspoint of the mod or gate
+                                                   matrix (a = the source, b = the destination as the page orders
+                                                   them); a phone-only switch (a: 0 the lightpen's cursor) */
 typedef struct { int16_t x, y, w, h; uint8_t kind, a, b; } tgt_t;
 #define NTGT 128
 static tgt_t tgt[NTGT];
@@ -26,10 +27,15 @@ static void tgt_add2(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t kind, 
 }
 
 /* the phone's own settings (Global: VDU), kept in their own file beside the firmware's */
-typedef struct { uint8_t ver, lines, dark, pad; } aset_t;
-static aset_t aset = {1, 2, 6, 0};               /* lines: 0..4 (240 .. 600 a screen); dark: 0..10 */
+typedef struct { uint8_t ver, lines, dark, pen; } aset_t;
+static aset_t aset = {2, 2, 6, 1};               /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the lightpen's
+                                                   cursor on or off */
 static uint32_t aset_dirty, t_aset;
 static const uint16_t ASET_LINES[5] = {240, 300, 360, 480, 600};
+
+/* the gate matrix's sources, as the phone shows them: lit a moment after each gate, so a short one still flashes */
+static uint32_t gate_seen[32];
+#define GATE_HOLD_MS 90u
 
 /* touch events from the UI thread: x, y in the firmware's screen pixels x 16 (what is drawn there, the tube's bulge
  * already undone) */

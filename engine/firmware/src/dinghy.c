@@ -2200,6 +2200,9 @@ static void draw_gmat(void)                     /* sources down, destinations ac
     cv_rect(0, 33, 240, 1, PH_LO);
     for (r = 0; r < 8u && gtop + r < NGS; r++) {
         uint32_t i = gtop + r, on = gs >> i & 1u;
+#ifdef QUORUM_ANDROID
+        on = on || fm1_ms - gate_seen[i & 31u] < GATE_HOLD_MS;   /* (a short gate held lit a moment, to be seen) */
+#endif
         int32_t y = 36 + (int32_t)r * 15;
         cv_text(2, y, &FONT_S, GS_NAME[i], i == grow ? PH_HI : on ? PH_MID : PH_LO);
         for (c = gleft; c < gleft + GCOLS && c < NGD; c++) {
@@ -2209,7 +2212,13 @@ static void draw_gmat(void)                     /* sources down, destinations ac
             tgt_add2(x - 1, BODY_Y + y - 1, 17, 15, T_GMAT, i, c);
 #endif
             if (cur) cv_rect(x, y - 1, 15, 15, PH_SEL);
+#ifdef QUORUM_ANDROID
+            if (pin && on) cv_rect(x + 1, y, 13, 13, PH_HI);              /* a gate passing: the pin flashes, full */
+            else if (pin) { cv_rect(x + 3, y + 2, 9, 1, PH_MID); cv_rect(x + 3, y + 10, 9, 1, PH_MID);   /* at rest: hollow */
+                            cv_rect(x + 3, y + 2, 1, 9, PH_MID); cv_rect(x + 11, y + 2, 1, 9, PH_MID); }
+#else
             if (pin) cv_rect(x + 3, y + 2, 9, 9, on ? PH_HI : PH_MID);
+#endif
             else cv_rect(x + 7, y + 6, 2, 2, cur ? PH_HI : PH_LO);
         }
     }
@@ -2377,18 +2386,21 @@ static void draw_vdu(void)                      /* GLOBAL: VDU (Android): phosph
     }
     for (i = 0; i <= 10u; i++) cv_rect(160 + (int32_t)i * 7, 24, 5, 8, i <= gset.bright ? PH_MID : PH_LO);
     for (i = 0; i <= 10u; i++) cv_rect(160 + (int32_t)i * 7, 60, 5, 8, i <= aset.dark ? PH_MID : PH_LO);
-    cv_rect(0, 75, 240, 1, PH_LO);
-    cv_rect(6, 82, 228, 1, PH_MID); cv_rect(6, 194, 228, 1, PH_MID);
-    cv_rect(6, 82, 1, 113, PH_MID); cv_rect(233, 82, 1, 113, PH_MID);
+    cv_text(4, 74, &FONT_S, "LIGHTPEN", PH_LO);         /* the phone's own: the pen's cursor */
+    cv_text(108, 74, &FONT_S, aset.pen ? "CURSOR ON" : "CURSOR OFF", PH_HI);
+    tgt_add(0, BODY_Y + 73, 240, 18, T_OPT, 0);
+    cv_rect(0, 93, 240, 1, PH_LO);
+    cv_rect(6, 100, 228, 1, PH_MID); cv_rect(6, 194, 228, 1, PH_MID);
+    cv_rect(6, 100, 1, 95, PH_MID); cv_rect(233, 100, 1, 95, PH_MID);
     for (i = 1; i < 8u; i++) {
         uint32_t k;
-        for (k = 84; k < 194u; k += 3u) cv_pset(6 + (int32_t)i * 29, (int32_t)k, PH_LO);
-        for (k = 8; k < 233u; k += 3u) if (i < 4u) cv_pset((int32_t)k, 82 + (int32_t)i * 28, PH_LO);
+        for (k = 102; k < 194u; k += 3u) cv_pset(6 + (int32_t)i * 29, (int32_t)k, PH_LO);
+        for (k = 8; k < 233u; k += 3u) if (i < 4u) cv_pset((int32_t)k, 100 + (int32_t)i * 23, PH_LO);
     }
     for (i = 0; i < 128u; i++)
-        cv_pset(120 + ((sine(i << 25) * 44) >> 15), 138 - ((sine((i << 25) + 0x40000000u) * 44) >> 15), PH_HI);
-    for (i = 0; i < 8u; i++) cv_rect(24 + (int32_t)i * 24, 124, 20, 28, RGB(0, 32 + i * 31, 0));
-    for (i = 0; i < 192u; i++) cv_pset(24 + (int32_t)i, 176 - ((sine(i * 0x05555555u) * 10) >> 15), PH_HI);
+        cv_pset(120 + ((sine(i << 25) * 38) >> 15), 147 - ((sine((i << 25) + 0x40000000u) * 38) >> 15), PH_HI);
+    for (i = 0; i < 8u; i++) cv_rect(24 + (int32_t)i * 24, 134, 20, 26, RGB(0, 32 + i * 31, 0));
+    for (i = 0; i < 192u; i++) cv_pset(24 + (int32_t)i, 180 - ((sine(i * 0x05555555u) * 8) >> 15), PH_HI);
     cv_text(2, 200, &FONT_S, "TAP A SETTING TO CHANGE IT", PH_LO);
     cv_out(BODY_Y);
 }

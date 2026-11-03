@@ -195,6 +195,10 @@ static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
     if (TB.open && (TB.pg != page || TB.sb != sub || TB.bk != bank)) bar_close();
+    {                                           /* the gate sources seen high, for the gate matrix's flashes */
+        uint32_t g = gsrc_v, i;
+        for (i = 0; g && i < 32u; i++, g >>= 1) if (g & 1u) gate_seen[i] = fm1_ms;
+    }
     while (touch_take(&act, &x16, &y16)) {
         float x = (float)x16 / 16.0f, y = (float)y16 / 16.0f;
         pen_x = x16 >> 4; pen_y = y16 >> 4; pen_t = fm1_ms; pen_down = act != TE_UP;
@@ -221,6 +225,9 @@ static void touch_frame(uint32_t *b)
                                                    a press would carry on into the new page, the Disk's "load") */
                 page = icur; sub = 0; bank = 0; hdr_force = 1;
                 bar_close();
+            } else if (hit->kind == T_OPT) {    /* a phone-only switch */
+                bar_close();
+                if (hit->a == 0u) { aset.pen ^= 1u; aset_dirty = 1; t_aset = fm1_ms; }
             } else if (hit->kind == T_KNOB) {
                 tgt_t t = *hit;
                 value_tap(hit->a, &t);
@@ -248,7 +255,7 @@ static void touch_frame(uint32_t *b)
 static void pen_draw(void)                      /* the lightpen's point: a small cross, while down and a moment after */
 {
     int32_t x = pen_x, y = pen_y - BODY_Y;
-    if (pen_x < 0 || (!pen_down && fm1_ms - pen_t > 400u) || y < 0 || y >= BODY_H) return;
+    if (!aset.pen || pen_x < 0 || (!pen_down && fm1_ms - pen_t > 400u) || y < 0 || y >= BODY_H) return;
     cv_rect(x - 6, y, 4, 1, PH_HI); cv_rect(x + 3, y, 4, 1, PH_HI);
     cv_rect(x, y - 6, 1, 4, PH_HI); cv_rect(x, y + 3, 1, 4, PH_HI);
     cv_rect(x, y, 1, 1, PH_MID);

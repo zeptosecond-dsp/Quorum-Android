@@ -146,8 +146,10 @@ static void app_main(void);
 static void aset_load(void)
 {
     aset_t a;
-    if (q_load("android", -1, &a, sizeof a) == 0 && a.ver == 1u) {
+    if (q_load("android", -1, &a, sizeof a) == 0 && (a.ver == 1u || a.ver == 2u)) {
+        if (a.ver == 1u) { a.ver = 2u; a.pen = 1u; }   /* (from before the lightpen's switch: on) */
         aset = a;
+        if (aset.pen > 1u) aset.pen = 1;
         if (aset.lines > 4u) aset.lines = 2;
         if (aset.dark > 10u) aset.dark = 6;
     }
