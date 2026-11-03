@@ -297,7 +297,11 @@ static patch_t P = {
 };
 static patch_t E;                               /* the patch as played: P with the matrix's modulation on it */
 static const char *const GM_NAME[NGM] = {"LO/HI", "ODD/EVN", "A AND B", "A OR B", "A XOR B"};
+#ifdef QUORUM_ANDROID
+static const char *const KM_NAME[NKM] = {"PLUCK", "MALLET", "BOW", "BREATH"};   /* (Android: the first profile is PLUCK) */
+#else
 static const char *const KM_NAME[NKM] = {"STRIKE", "MALLET", "BOW", "BREATH"};
+#endif
 static const char *const KSH_NAME[NKM] = {"HARD", "SOFT", "PRESS", "AIR"};
 static const char *const SE_NAME[3] = {"ALL", "ODD", "EVEN"};
 static const char *const SR_NAME[NSR] = {"CUTOFF", "BAND", "ODD/EVN", "EVERY N", "GRID AB", "SOURCE"};
@@ -2208,7 +2212,7 @@ static void draw_grid(void)
     }
     knob_row(0);
 #ifdef QUORUM_ANDROID
-    CMDS(C_SEED);
+    CMDS(C_BANK, C_SEED);
 #else
     footer("OCT A/B  SEL BANK  PLAY SEED");
 #endif
@@ -2301,7 +2305,7 @@ static void draw_strike(void)
     cv_text(236 - text_w(&FONT_S, s), 140, &FONT_S, s, PH_LO);
     knob_row(0);
 #ifdef QUORUM_ANDROID
-    CMDS(C_FIRE, C_FILT, C_ROUTE);
+    CMDS(C_BANK, C_FIRE, C_FILT, C_ROUTE);
 #else
     footer("OCT 1/2 SEL BANK PLAY FIRE");
 #endif
@@ -2581,7 +2585,12 @@ static void draw_keys(void)
         cv_rect(18, y + 1, 6, rh - 2, bk ? PH_LO : PH_MID);
         if (n % 12u == 0u) { s[0] = 0; s_note(s, n); cv_text(0, y - 4, &FONT_S, s, PH_LO); }
     }
+#ifdef QUORUM_ANDROID
+    for (j = 0; j <= KS_SPP; j += KS_SPP) cv_rect(x0 + (int32_t)j * sw, y0, 1, (int32_t)KV_ROWS * rh, PH_LO);   /* (the frame
+                                                   only, as page R: no lines between the steps) */
+#else
     for (j = 0; j <= KS_SPP; j++) cv_rect(x0 + (int32_t)j * sw, y0, 1, (int32_t)KV_ROWS * rh, j % KS_SPP ? PH_SEL : PH_LO);
+#endif
     for (j = 0; j < KS_SPP; j++)                /* past the end: dotted out */
         if (p0 + j >= steps) for (r = 0; r < KV_ROWS * (uint32_t)rh; r += 3u)
             { int32_t k; for (k = 6; k < sw; k += 8) cv_pset(x0 + (int32_t)j * sw + k, y0 + (int32_t)r, PH_LO); }
@@ -2609,8 +2618,14 @@ static void draw_keys(void)
         int32_t bo = (int32_t)((q->run && pos >= p0 && pos < p0 + KS_SPP ? pos : kc_pos >= p0 ? kc_pos : p0) - p0);
         bo = cl(bo, 0, 3);
         for (j = 0; j < 4u; j++) {
+#ifdef QUORUM_ANDROID
+            int32_t xc = x0 + (int32_t)j * sw, on = (int32_t)j == bo, h = on ? 7 : 5, apex = on ? 115 : 119, k;   /* (Android, as
+                                                   page R: each at its step's start, the last step's width after the last) */
+            (void)lw;
+#else
             int32_t xc = x0 + lw * (int32_t)j / 3, on = (int32_t)j == bo, h = on ? 7 : 5, apex = on ? 115 : 119, k;
             if (j == 1u || j == 2u) for (k = y0; k < 113; k += 2) cv_pset(xc, k, PH_LO);
+#endif
             for (k = 0; k <= h; k++) cv_rect(xc - k, apex + k, 2 * k + 1, 1, on ? PH_HI : PH_MID);
         }
     }
@@ -2700,7 +2715,7 @@ static void draw_seq(void)                      /* a sequencer: its steps as bar
     cv_text(4, 140, &FONT_S, s, PH_LO);
     knob_row(0);
 #ifdef QUORUM_ANDROID
-    CMDS(C_GATE);
+    CMDS(C_BANK, C_GATE);
 #else
     footer("OCT SEQ SEL BANK PLAY GATE");
 #endif
@@ -2850,7 +2865,7 @@ static void draw_split(void)
         cv_text(4, 142, &FONT_S, s, P.kbd[k] ? PH_LO : PH_HI);
         knob_row(k);
 #ifdef QUORUM_ANDROID
-    CMDS(C_KEYS);
+    CMDS(C_BANK, C_KEYS);
 #else
         footer("OCT PART SEL BANK PLAY KEYS");
 #endif
@@ -3046,7 +3061,7 @@ static void draw_phaser(void)
     }
     knob_row(0);
 #ifdef QUORUM_ANDROID
-    CMDS(C_NOFB, C_PHSLOW);
+    CMDS(C_BANK, C_NOFB, C_PHSLOW);
 #else
     footer("PRESETS 22/11K  PLAY: NO FB");
 #endif
@@ -3077,7 +3092,7 @@ static void draw_delay(void)
     }
     knob_row(0);
 #ifdef QUORUM_ANDROID
-    CMDS(C_DCLEAR);
+    CMDS(C_BANK, C_DCLEAR);
 #else
     footer("SEL BANK  PLAY: CLEAR");
 #endif
@@ -3100,7 +3115,7 @@ static void draw_reverb(void)
     }
     knob_row(0);
 #ifdef QUORUM_ANDROID
-    CMDS(C_FREEZE, C_RVRATE);
+    CMDS(C_BANK, C_FREEZE, C_RVRATE);
 #else
     footer("PRESETS RATE  PLAY: FREEZE");
 #endif

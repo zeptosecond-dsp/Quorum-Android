@@ -21,7 +21,8 @@
  *   Disk           LOAD, SAVE (tap again to confirm, as the FM-1's buttons), NAME: tap letters into the name, < > move.
  *   key sequencer  tap an empty cell for a note, drag right to tie it; drag a note's left part to move it, its right
  *                  end to stretch it; two quick taps take it out. Drag the keys down the side for higher or lower;
- *                  tap a triangle for that step, swipe them for another page; tap the STEP line for the next page.
+ *                  tap a triangle (each at its step's start, as page R) for that step, swipe them for another page;
+ *                  tap the STEP line for the next page.
  *   Modulators     the tabs across the top go straight to a part. An FG: drag its peak sideways for RISE, its end for
  *                  FALL; tap the shape for the next CURVE. An envelope: drag a stroke across the grid and it snaps to
  *                  points; tap the grid for a point (or to choose the one there); tap a point to choose it (its
@@ -379,6 +380,7 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     case C_NSPACE: s_cat(s, "SPACE"); break;
     case C_NOK: s_cat(s, "OK"); break;
     case C_NCANCEL: s_cat(s, "CANCEL"); break;
+    case C_BANK: s_cat(s, "BANK "); s_int(s, (int32_t)bank + 1); s_cat(s, "/"); s_int(s, (int32_t)page_banks(page, sub)); break;
     default: break;
     }
 }
@@ -388,7 +390,7 @@ static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the
     case C_SEED: case C_FIRE: case C_KEYS: case C_GATE: case C_NOFB: case C_DCLEAR: case C_FREEZE: case C_QUANT:
     case C_RESETMAX: case C_NAME: case C_NCANCEL:
         *b |= 1u << BTN_PLAY; break;            /* (what PLAY did on this page) */
-    case C_F0: case C_LOAD: *b |= 1u << BTN_SEL; break;
+    case C_F0: case C_LOAD: case C_BANK: *b |= 1u << BTN_SEL; break;   /* (SEL: a page's banks, VOICE's F0, the Disk's load) */
     case C_SAVE: case C_NOK: *b |= 1u << BTN_SAVE; break;
     case C_REC: *b |= 1u << BTN_REC; break;
     case C_CLEAR: *b |= 1u << BTN_SEQ; break;   /* (twice in 2 s: clear) */
@@ -486,7 +488,7 @@ static void keys_up(float x)
         uint32_t steps = ks_steps(), npg = (steps + KS_SPP - 1u) / KS_SPP, pg = TK.p0 / KS_SPP;
         float dx = x - TK.x0;
         if (dx > 24.0f || dx < -24.0f) pg = dx < 0.0f ? (pg + 1u) % npg : (pg + npg - 1u) % npg;
-        else { uint32_t j = (uint32_t)cl((int32_t)((x - 26.0f) / 68.0f + 0.5f), 0, 3); kc_pos = TK.p0 + j < steps ? TK.p0 + j : steps - 1u; kc_len = 1; TK.mode = 0; t_kedit = fm1_ms; return; }
+        else { uint32_t j = (uint32_t)cl((int32_t)((x - 26.0f) / 51.0f + 0.5f), 0, 3);   /* (the triangle nearest: each at its step's start) */ kc_pos = TK.p0 + j < steps ? TK.p0 + j : steps - 1u; kc_len = 1; TK.mode = 0; t_kedit = fm1_ms; return; }
         kc_pos = pg * KS_SPP; kc_len = 1; t_kedit = fm1_ms;
     } else if (TK.mode == 1 || TK.mode == 2) {
         tgt_t t = {0, 0, 0, 0, T_ROLL, (uint8_t)kc_pos, (uint8_t)kc_note};
