@@ -52,7 +52,7 @@ class CrtView(context: Context) : GLSurfaceView(context) {
     private inner class Renderer : GLSurfaceView.Renderer {
         private val intensity = ByteBuffer.allocateDirect(240 * 240).order(ByteOrder.nativeOrder())
         private val ramp = ByteBuffer.allocateDirect(256 * 4).order(ByteOrder.nativeOrder())
-        private val gain = IntArray(4)
+        private val gain = IntArray(5)
         private val quad: FloatBuffer = ByteBuffer.allocateDirect(4 * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
             // clip x, y; engine x, y (y down)
             put(floatArrayOf(-1f, -1f, 0f, 240f, 1f, -1f, 240f, 240f, -1f, 1f, 0f, 0f, 1f, 1f, 240f, 0f)); position(0)
@@ -64,6 +64,7 @@ class CrtView(context: Context) : GLSurfaceView(context) {
         private var uGe = 0
         private var uLinePx = 0
         private var uLineDim = 0
+        private var uDg = 0
         private var viewH = 1
 
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -85,6 +86,7 @@ class CrtView(context: Context) : GLSurfaceView(context) {
             uGe = GLES20.glGetUniformLocation(prog, "uGe")
             uLinePx = GLES20.glGetUniformLocation(prog, "uLinePx")
             uLineDim = GLES20.glGetUniformLocation(prog, "uLineDim")
+            uDg = GLES20.glGetUniformLocation(prog, "uDg")
             val aPos = GLES20.glGetAttribLocation(prog, "aPos")
             val aEng = GLES20.glGetAttribLocation(prog, "aEng")
             quad.position(0)
@@ -115,6 +117,7 @@ class CrtView(context: Context) : GLSurfaceView(context) {
             val lp = max(2, (viewH / maxOf(1, gain[2]).toFloat()).roundToInt())
             GLES20.glUniform1f(uLinePx, lp.toFloat())
             GLES20.glUniform1f(uLineDim, 1f - gain[3].coerceIn(0, 100) / 100f)
+            GLES20.glUniform1f(uDg, if (gain[4] >= 0) gain[4] / 1000f else -1f)   // the degauss: seconds since, or -1
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         }
@@ -170,9 +173,14 @@ uniform float uGc;
 uniform float uGe;
 uniform float uLinePx;
 uniform float uLineDim;
+uniform float uDg;
 varying vec2 vEng;
 void main() {
     vec2 q = vEng - 0.5;
+    if (uDg >= 0.0) {                       // the degauss: the picture wobbles, the wobble dying away
+        float a = 7.0 * exp(-2.5 * uDg);
+        q += vec2(sin(q.y * 0.09 + uDg * 38.0), cos(q.x * 0.07 + uDg * 29.0)) * a;
+    }
     vec2 d = q - 120.0;
     float k2 = 30.0 * dot(d, d);
     vec2 s = q + d * k2 / 16777216.0;
@@ -185,6 +193,13 @@ void main() {
         v = min(255.0, v * tf / 256.0);
     }
     vec3 c = texture2D(uRamp, vec2((floor(v) + 0.5) / 256.0, 0.5)).rgb;
+    if (uDg >= 0.0) {                       // ... and its colours smear across the glass, strongest at the edges
+        float m = exp(-2.0 * uDg);
+        vec2 dd = (q - 120.0) / 120.0;
+        vec3 tint = 0.5 + 0.5 * cos(6.2831853 * (dd.x * 0.7 + dd.y * 0.5 + uDg * 1.5) + vec3(0.0, 2.0, 4.0));
+        c = mix(c, max(c.r, max(c.g, c.b)) * tint * 1.4, m * 0.7 * clamp(length(dd) * 1.2, 0.2, 1.0));
+        c += vec3(0.20, 0.08, 0.25) * exp(-uDg * 14.0);
+    }
     if (mod(floor(gl_FragCoord.y), uLinePx) >= uLinePx - 1.0) c *= uLineDim;
     gl_FragColor = vec4(c, 1.0);
 }

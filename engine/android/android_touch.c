@@ -362,6 +362,46 @@ static void grid_cell(float x)
     dirty_partials = 1;
 }
 
+/* ---- (Global: VINTAGE) the disk: now and then a page change waits on it; a patch saved or loaded always does */
+static uint32_t vt_rnd = 0x2545F491u;
+static uint32_t vt_rand(uint32_t n) { vt_rnd ^= vt_rnd << 13; vt_rnd ^= vt_rnd >> 17; vt_rnd ^= vt_rnd << 5; return n ? vt_rnd % n : 0u; }
+static int vt_safe(void)                        /* never while the music depends on time: MIDI in, the keys running */
+{
+    if (P.ks.run || ks_rec || ks_auto) return 0;
+    if (midi_last_ms != 0xFFFFFFFFu && fm1_ms - midi_last_ms < 3000u) return 0;
+    return 1;
+}
+static void vt_disk(uint32_t write)
+{
+    if (!aset.vint || vt_busy || !vt_safe()) return;
+    vt_write = write;
+    vt_len = write ? 1600u + vt_rand(1400u) : 900u + vt_rand(1300u);
+    vt_t0 = fm1_ms; vt_seed = vt_rand(0xFFFFFFFFu) | 1u;
+    vt_busy = 1;
+    mute = 1;                                   /* (the engine fades out, as for the FM-1's flash; the drive is heard) */
+}
+static const char *vt_message(void)
+{
+    static char m[32];
+    uint32_t trk = (vt_seed >> 3) % 77u, el = fm1_ms - vt_t0;
+    trk = (trk + el / 130u * 7u) % 77u;         /* (the head stepping about) */
+    m[0] = 0;
+    s_cat(m, aset.drive ? "DRIVE C: " : "DRIVE A: ");
+    s_cat(m, vt_write ? "WRITE TRK " : "READ TRK ");
+    if (trk < 10u) s_cat(m, "0");
+    s_int(m, (int32_t)trk);
+    return m;
+}
+static void vt_poll(void)                       /* each pass: a page changed (by anything) may wait; an access ends */
+{
+    static uint32_t vp = 0xFFFFFFFFu, vs;
+    if (page != vp || sub != vs) {
+        if (vp != 0xFFFFFFFFu && aset.vint && !vt_busy && vt_rand(VT_ODDS[aset.odds % 3u]) == 0u) vt_disk(0u);
+        vp = page; vs = sub;
+    }
+    if (vt_busy && fm1_ms - vt_t0 >= vt_len) { vt_busy = 0; mute = 0; hdr_force = 1; }
+}
+
 /* ---- the command words */
 static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: the state in the word) */
 {
@@ -378,6 +418,7 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     case C_KEYS: s_cat(s, P.kbd[(sub - 1u) & 1u] ? "KEYS ON" : "KEYS OFF"); break;
     case C_GATE: s_cat(s, P.seq[sub % NSEQ].gate[scur[sub % NSEQ] & 7u] ? "GATE ON" : "GATE OFF"); break;
     case C_SQRUN: s_cat(s, P.sq_stop[sub % NSEQ] ? "RUN OFF" : "RUN ON"); break;
+    case C_DEGAUSS: s_cat(s, "DEGAUSS"); break;
     case C_REC: s_cat(s, ks_rec ? "REC ON" : "REC"); break;
     case C_AUTO: s_cat(s, ks_auto ? "AUTO ON" : "AUTO"); break;
     case C_CLEAR: s_cat(s, ks_clr && fm1_ms - t_clr < 2000u ? "CLEAR?" : "CLEAR"); break;
@@ -421,6 +462,7 @@ static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the
     case C_PHSLOW: P.ph.slow ^= 1u; break;
     case C_RVRATE: P.rv.rate ^= 1u; dirty_partials = 1; break;
     case C_SQRUN: P.sq_stop[sub % NSEQ] ^= 1u; break;   /* (its own clock only: a gate or an address still moves it) */
+    case C_DEGAUSS: dg_start_ms = fm1_ms; break;   /* (the wobble on the screen, the thunk and hum in the sound) */
     case C_PATHA: qsel = 0; break;
     case C_LOCK: P.lock ^= 1u; after_change(PG_GRID, sub, 3u, 1u); break;   /* (as bank 2's K4: B in step with A) */
     case C_PATHB: qsel = 1; break;
@@ -522,6 +564,12 @@ static void keys_up(float x)
 static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
+    vt_poll();
+    if (vt_busy) {                              /* (the machine is busy: touches go nowhere) */
+        while (touch_take(&act, &x16, &y16)) { pen_x = x16 >> 4; pen_y = y16 >> 4; pen_t = fm1_ms; pen_down = act != TE_UP; }
+        TS.scroll = TS.pending = 0; TB.drag = 0; TM.mode = 0; TK.mode = 0; TG.on = 0; kc_place = 0;
+        return;
+    }
     if (TB.open && (TB.pg != page || TB.sb != sub || TB.bk != bank)) bar_close();
     {                                           /* the gate sources seen high, for the gate matrix's flashes */
         uint32_t g = gsrc_v, i;
@@ -561,6 +609,7 @@ static void touch_frame(uint32_t *b)
             } else if (hit->kind == T_OPT) {    /* a phone-only switch */
                 bar_close();
                 if (hit->a == 0u) { aset.pen ^= 1u; aset_dirty = 1; t_aset = fm1_ms; }
+                if (hit->a == 1u) { aset.vint ^= 1u; aset_dirty = 1; t_aset = fm1_ms; }   /* (VINTAGE MODE) */
             } else if (hit->kind == T_KNOB) {
                 tgt_t t = *hit;
                 value_tap(hit->a, &t);

@@ -1771,6 +1771,9 @@ static uint32_t page_subs(uint32_t pg)
     if (pg == PG_STRIKE) return 2u;
     if (pg == PG_LOGIC) return 4u;
     if (pg == PG_SEQ) return NSEQ + 1u;        /* SEQ 1-3, KEYS (the keyboard sequencer) */
+#ifdef QUORUM_ANDROID
+    if (pg == PG_GLOBAL) return 4u;             /* TUNING, VDU, ENGINE, (Android) VINTAGE */
+#endif
     if (pg == PG_SPLIT || pg == PG_GLOBAL) return 3u;
     if (pg == PG_FX) return 4u;                 /* PHASER, DELAY, REVERB, ROUTING */
 #ifdef QUORUM_ANDROID
@@ -1807,7 +1810,7 @@ enum { F_INT, F_SLEW, F_TILT, F_STR, F_PCT, F_GMODE, F_GRATE, F_MUT, F_ONOFF, F_
        F_DEC, F_FALL, F_SER, F_LSRC, F_OP, F_ROUTE, F_SRULE, F_POINT, F_WIDTH, F_SOFT, F_PMODE, F_FREQ, F_RES, F_BW,
        F_PAN, F_SEMI, F_CENT, F_CLK, F_TEMPO, F_PHOS, F_BRIGHT, F_BITS, F_TUN, F_SCL, F_SROOT, F_COUNT, F_SPACE, F_TPAT,
        F_GOP, F_GMODE2, F_RATE, F_DUTY, F_FGT, F_CURVE, F_FMODE, F_SSGIN, F_DEPTH, F_QRATE, F_STEPN, F_SDIR, F_SADDR,
-       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_SCLK, F_NONE };   /* (F_SCAN, F_DARK:
+       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_SCLK, F_ODDS, F_DRIVE, F_TEN, F_DRAW, F_NONE };   /* (F_SCAN, F_DARK:
        Android) */
 typedef struct { const char *name; uint8_t *p; int16_t lo, hi; uint8_t fmt, step; } kn_t;
 #ifdef QUORUM_ANDROID
@@ -1931,6 +1934,13 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
                              kn_set(2, "LINES", &aset.lines, 0, 4, F_SCAN, 1); kn_set(3, "DARK", &aset.dark, 0, 10, F_DARK, 1);
 #endif
         }
+#ifdef QUORUM_ANDROID
+        else if (sb == 3u) {                    /* VINTAGE: the phone's own */
+            kn_set(0, "ODDS", &aset.odds, 0, 2, F_ODDS, 1); kn_set(1, "DRIVE", &aset.drive, 0, 1, F_DRIVE, 1);
+            kn_set(2, "BURN", &aset.burn, 0, 10, F_TEN, 1); kn_set(3, "PERSIST", &aset.persist, 0, 10, F_TEN, 1);
+            kn_set(4, "DRAW", &aset.draw, 0, 10, F_DRAW, 1); kn_set(5, "WARM-UP", &aset.warm, 0, 1, F_ONOFF, 1);
+        }
+#endif
         else { kn_set(0, "ENG VER", &P.engver, 1, 2, F_BITS, 1); kn_set(1, "CLOCK", &P.clk_midi, 0, 1, F_CLK, 1);
                }
     }
@@ -2036,6 +2046,10 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
 #ifdef QUORUM_ANDROID
     case F_SCAN: s_int(s, ASET_LINES[v % 5]); break;
     case F_NOTE: s_note(s, (uint32_t)v); break;
+    case F_ODDS: { static const char *const O[3] = {"RARE", "1 IN 10", "CRANKY"}; s_cat(s, O[v % 3]); } break;
+    case F_DRIVE: s_cat(s, v ? "HARD DISK" : "8IN FLOPPY"); break;
+    case F_TEN: if (!v) s_cat(s, "OFF"); else s_int(s, v); break;
+    case F_DRAW: if (!v) s_cat(s, "INSTANT"); else { s_int(s, v * 80); s_cat(s, "MS"); } break;
     case F_SCLK: if (v <= 10) { s_cat(s, P.clk_midi ? "MIDI/" : "MAST/"); s_int(s, DIVS[v]); }   /* (a slew sequencer's own) */
                  else { uint32_t x = Q_GRID_X100[(v - 11) & 127]; s_dec(s, x, 100u, x < 1000u ? 2u : 1u); s_cat(s, "/S"); } break;
     case F_EGMODE: { static const char *const M[3] = {"TRIG", "GATE", "CYCLE"}; s_cat(s, M[v % 3]); } break;
@@ -2078,6 +2092,9 @@ static void header_title(char *s)               /* the header's text before the 
 #endif
                               else s_cat(s, "QUAD LFO"); }
     else if (page == PG_SPLIT) s_cat(s, sub == 0u ? "SPLIT" : sub == 1u ? "PATH A" : "PATH B");
+#ifdef QUORUM_ANDROID
+    else if (page == PG_GLOBAL && sub == 3u) s_cat(s, "GLOBAL: VINTAGE");
+#endif
     else if (page == PG_GLOBAL) s_cat(s, sub == 0u ? "GLOBAL: TUNING" : sub == 1u ? "GLOBAL: VDU" : "GLOBAL: ENGINE");
     else if (page == PG_FX) { static const char *const FN[4] = {"FX: PHASER", "FX: DELAY", "FX: REVERB", "FX: ROUTING"}; s_cat(s, FN[sub & 3u]); }
     else s_cat(s, PG_NAME[page]);
@@ -2090,6 +2107,13 @@ static void draw_header(void)
     if (*hmsg) { s[0] = 0; s_cat(s, hmsg); }
     cv_begin(240, BODY_Y, PH_BG);
     cv_text(4, 2, &FONT_S, s, PH_HI);
+#ifdef QUORUM_ANDROID
+    {                                           /* (Android) the drive's light, where the FM-1's battery is */
+        cv_rect(212, 6, 16, 1, PH_MID); cv_rect(212, 12, 16, 1, PH_MID); cv_rect(212, 6, 1, 7, PH_MID); cv_rect(227, 6, 1, 7, PH_MID);
+        if (vt_busy && (fm1_ms / 90u) % 3u) cv_rect(214, 8, 12, 3, PH_HI);
+    }
+    if (0)
+#endif
     {
         uint32_t n = batt_bars(), k;
         uint16_t c = !batt_usb() && n == 0u ? PH_HI : PH_MID;
@@ -3038,6 +3062,33 @@ static void draw_vdu(void)                      /* GLOBAL: VDU, as Arcturus S6: 
     cv_out(BODY_Y);
 }
 #endif
+#ifdef QUORUM_ANDROID
+static void draw_vintage(void)                  /* (Android) GLOBAL: VINTAGE: the machine's moods, all the phone's own */
+{
+    static const char *const NAME[7] = {"VINTAGE MODE", "DISK ODDS", "DRIVE", "SCREEN BURN", "PERSISTENCE", "DRAW SPEED", "WARM-UP"};
+    char s[24];
+    uint32_t i;
+    cv_begin(240, BODY_H, PH_BG);
+    knobs_for(PG_GLOBAL, 3u, 0u);
+    for (i = 0; i < 7u; i++) {
+        int32_t y = 2 + (int32_t)i * 18;
+        uint16_t c = i >= 1u && i <= 2u && !aset.vint ? PH_LO : PH_HI;   /* (the disk's: only with the mode on) */
+        cv_text(4, y, &FONT_S, NAME[i], PH_LO);
+        if (i == 0u) { cv_text(124, y, &FONT_S, aset.vint ? "ON" : "OFF", PH_HI); tgt_add(0, BODY_Y + y - 1, 240, 18, T_OPT, 1); }
+        else { kn_text(s, &KN[i - 1u], 0); cv_text(124, y, &FONT_S, s, c); tgt_add(0, BODY_Y + y - 1, 240, 18, T_KNOB, i - 1u); }
+        if (i >= 3u && i <= 5u) {               /* (the levels as a row of dots) */
+            uint32_t v = i == 3u ? aset.burn : i == 4u ? aset.persist : aset.draw, j;
+            for (j = 1; j <= 10u; j++) cv_rect(176 + (int32_t)j * 5, y + 5, 3, 6, j <= v ? PH_MID : PH_SEL);
+        }
+    }
+    cv_rect(0, 131, 240, 1, PH_LO);
+    cv_text(4, 136, &FONT_S, "VINTAGE MODE: NOW AND THEN", PH_LO);
+    cv_text(4, 152, &FONT_S, "A PAGE WAITS ON THE DISK.", PH_LO);
+    cv_text(4, 168, &FONT_S, "NEVER WITH MIDI OR KEYS ON.", PH_LO);
+    CMDS(C_DEGAUSS);
+    cv_out(BODY_Y);
+}
+#endif
 static void draw_engine(void)                   /* GLOBAL: ENGINE: the hardware revision, the clock, the CPU */
 {
     char s[40];
@@ -3777,7 +3828,8 @@ static void after_change(uint32_t pg, uint32_t sb, uint32_t knob, uint32_t bk)
     }
 #endif
 #ifdef QUORUM_ANDROID
-    if (pg == PG_GLOBAL && sb == 1u && knob >= 2u) { aset_dirty = 1; t_aset = fm1_ms; }   /* (the phone's own: its file) */
+    if (pg == PG_GLOBAL && ((sb == 1u && knob >= 2u) || sb == 3u)) { aset_dirty = 1; t_aset = fm1_ms; }   /* (the phone's
+                                                   own: its file) */
 #endif
 }
 static uint32_t icur = PG_VOICE;                /* the Index's cursor (Android: a tap sets it) */
@@ -4012,6 +4064,9 @@ static void app_main(void)
                 if (pcur == 0u || pcur == P_RANDOM) { pmsg = "CANNOT SAVE HERE"; t_msg = fm1_ms; }
                 else if (pconf == PC_SAVE || !pused[pcur]) {
                     pmsg = patch_save(pcur) == 0 ? "SAVED" : "SAVE FAILED";
+#ifdef QUORUM_ANDROID
+                    vt_disk(1u);                /* (vintage: the drive writes it, for a while) */
+#endif
                     pconf = PC_NONE; t_msg = fm1_ms;
                 } else pconf = PC_SAVE;
             }
@@ -4019,6 +4074,9 @@ static void app_main(void)
                 if (!pused[pcur]) { pmsg = "EMPTY SLOT"; t_msg = fm1_ms; }
                 else if (pconf == PC_LOAD) {
                     pmsg = patch_load(pcur) != 0 ? "LOAD FAILED" : pcur == P_RANDOM ? "ROLLED" : "LOADED";
+#ifdef QUORUM_ANDROID
+                    if (pcur != P_RANDOM && pcur != 0u) vt_disk(0u);   /* (vintage: the drive reads it) */
+#endif
                     pconf = PC_NONE; t_msg = fm1_ms;
                 } else pconf = PC_LOAD;
             }
@@ -4093,7 +4151,10 @@ static void app_main(void)
             uint32_t blink = (fm1_ms / 250u) & 1u, row;
             t_draw = fm1_ms;
 #ifdef QUORUM_ANDROID
+            if (vt_busy) { hmsg = vt_message(); draw_header(); hmsg = ""; hdr = 1; }   /* (the disk: the page waits) */
+            else {
             tgt_n = 0;                          /* (the page says again where its touchable things are) */
+            shown_page = page; shown_sub = sub; /* (what the screen is drawing: the reveal follows it) */
 #endif
             if (hdr || hdr_force) { hdr = 0; hdr_force = 0; draw_header(); }   /* (a new phosphor: the header too) */
             switch (page) {
@@ -4111,11 +4172,18 @@ static void app_main(void)
 #endif
             case PG_MOD: draw_mod(); break;
             case PG_SPLIT: draw_split(); break;
+#ifdef QUORUM_ANDROID
+            case PG_GLOBAL: if (sub == 0u) draw_tuning(); else if (sub == 1u) draw_vdu(); else if (sub == 2u) draw_engine(); else draw_vintage(); break;
+#else
             case PG_GLOBAL: if (sub == 0u) draw_tuning(); else if (sub == 1u) draw_vdu(); else draw_engine(); break;
+#endif
             case PG_PATCH: draw_disk(); break;
             case PG_FX: if (sub == 0u) draw_phaser(); else if (sub == 1u) draw_delay(); else if (sub == 2u) draw_reverb(); else draw_routing(); break;
             default: break;
             }
+#ifdef QUORUM_ANDROID
+            }
+#endif
             row = G[page == PG_GRID ? sub & 1u : 0u].row;   /* the keys: the cells (grid A, or the grid shown) */
             for (i = 0; i < 25u; i++) fm1_led_key(KEY_LED(i), (row >> i) & 1u);
             for (i = 0; i < 2u; i++) {          /* the strike keys: a glow at rest, full while the strike's gate is high */

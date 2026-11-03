@@ -13,7 +13,7 @@ enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT, T_TAB, T_FGSHAPE, T_FGPEAK,
  * REC, SEQ, OCT did on that page; a few were the ALGORITHM / PRESETS encoders' */
 enum { C_SEED, C_FIRE, C_FILT, C_ROUTE, C_FREE, C_F0, C_ROOT, C_N, C_KEYS, C_GATE, C_REC, C_AUTO, C_CLEAR, C_NOFB,
        C_PHSLOW, C_DCLEAR, C_FREEZE, C_RVRATE, C_PATHA, C_PATHB, C_QUANT, C_RESETMAX, C_LOAD, C_SAVE, C_NAME, C_NLEFT,
-       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, C_LOCK, C_SQRUN, NCMD };
+       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, C_LOCK, C_SQRUN, C_DEGAUSS, NCMD };
 static int32_t kn_old;                         /* a value as it was before the finger moved it (VOICE ROOT: the held
                                                    paths move with it) */   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
                                                    page); a Disk file (a = its slot); a crosspoint of the mod or gate
@@ -39,9 +39,21 @@ static void tgt_add2(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t kind, 
 }
 
 /* the phone's own settings (Global: VDU), kept in their own file beside the firmware's */
-typedef struct { uint8_t ver, lines, dark, pen; } aset_t;
-static aset_t aset = {2, 2, 6, 1};               /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the lightpen's
-                                                   cursor on or off */
+typedef struct { uint8_t ver, lines, dark, pen; } aset1_t;   /* (the file as builds before the vintage page wrote it) */
+typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, pad; } aset_t;
+static aset_t aset = {3, 2, 6, 1, 0, 1, 0, 0, 0, 3, 0, 0};   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
+                                                   lightpen's cursor; (Global: VINTAGE) vint: vintage mode, off until
+                                                   asked; odds: a disk access on a page change, rare / 1 in 10 /
+                                                   cranky; drive: 8" floppy / hard disk; burn, persist: 0..10; draw: the
+                                                   page drawn in over draw x 80 ms; warm: a warm-up at launch */
+static const uint8_t VT_ODDS[3] = {25, 10, 4};   /* a disk access: one page change in so many */
+
+/* (Global: VINTAGE) the disk: an access running (the page frozen, the sound faded, the drive heard); the drive's sounds
+ * and the degauss's are mixed in after the engine's fade (android_platform.c) */
+static volatile uint32_t vt_busy, vt_write, vt_seed;
+static uint32_t vt_t0, vt_len, vt_snd_t;
+static volatile uint32_t dg_start_ms = 0xFFFFFFFFu;   /* the degauss: when it started */
+static uint32_t midi_last_ms = 0xFFFFFFFFu;     /* the last MIDI message read: a disk access waits 3 s after it */
 static uint32_t aset_dirty, t_aset;
 static const uint16_t ASET_LINES[5] = {240, 300, 360, 480, 600};
 
@@ -64,5 +76,8 @@ static int touch_take(int32_t *act, int32_t *x16, int32_t *y16)
 }
 
 static void cmd_label(uint32_t id, char *s);   /* (android_touch.c) a command word as it reads now */
+static uint32_t shown_page = 0xFFFFFFFFu, shown_sub;   /* the page the screen is drawing (frozen while the disk runs) */
+static const char *vt_message(void);           /* (android_touch.c) the header's line while the disk runs */
+static void vt_disk(uint32_t write);           /* (android_touch.c) a disk access now (vintage mode: on) */
 static void touch_frame(uint32_t *b);          /* (android_touch.c) the taps, once a pass of the main loop */
 static void touch_draw(void);                  /* (android_touch.c) the slide bar, over the body before the tube */

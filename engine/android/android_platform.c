@@ -64,6 +64,8 @@ static void fm1_led_key_glow(uint32_t id, int on)
     if (on) atomic_fetch_or(&q_glow, m); else atomic_fetch_and(&q_glow, ~m);
 }
 
+#include "android_ui.h"                        /* touch targets, the phone's settings, the touch queue */
+
 /* ------------------------------------------------------------------ the screen, as host.c */
 static uint16_t fb[240 * 240];
 static void lcd_sync(void) {}
@@ -153,6 +155,7 @@ static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)
     uint32_t r = atomic_load(&q_mq_r);
     if (r == atomic_load_explicit(&q_mq_w, memory_order_acquire)) return 0;
     *st = q_mq[r % 256u][0]; *d1 = q_mq[r % 256u][1]; *d2 = q_mq[r % 256u][2];
+    midi_last_ms = fm1_ms;                      /* (MIDI coming in: no disk access for a while) */
     atomic_store_explicit(&q_mq_r, r + 1u, memory_order_release);
     return 1;                                   /* (as USB) */
 }
@@ -161,17 +164,21 @@ static void midi_send(uint32_t st, uint32_t d1, uint32_t d2) { (void)st; (void)d
 static void app_audio(int32_t *out, uint32_t n);
 static void app_main(void);
 
-#include "android_ui.h"                        /* touch targets, the phone's settings, the touch queue */
 static void aset_load(void)
 {
     aset_t a;
-    if (q_load("android", -1, &a, sizeof a) == 0 && (a.ver == 1u || a.ver == 2u)) {
-        if (a.ver == 1u) { a.ver = 2u; a.pen = 1u; }   /* (from before the lightpen's switch: on) */
-        aset = a;
-        if (aset.pen > 1u) aset.pen = 1;
-        if (aset.lines > 4u) aset.lines = 2;
-        if (aset.dark > 10u) aset.dark = 6;
+    aset1_t o;
+    if (q_load("android", -1, &a, sizeof a) == 0 && a.ver == 3u) aset = a;
+    else if (q_load("android", -1, &o, sizeof o) == 0 && (o.ver == 1u || o.ver == 2u)) {   /* (an older file: its VDU
+                                                   settings kept, the vintage ones as new) */
+        aset.lines = o.lines; aset.dark = o.dark; aset.pen = o.ver == 1u ? 1u : o.pen;
     }
+    aset.ver = 3;
+    if (aset.pen > 1u) aset.pen = 1;
+    if (aset.lines > 4u) aset.lines = 2;
+    if (aset.dark > 10u) aset.dark = 6;
+    aset.vint &= 1u; if (aset.odds > 2u) aset.odds = 1; aset.drive &= 1u;
+    if (aset.burn > 10u) aset.burn = 0; if (aset.persist > 10u) aset.persist = 0; if (aset.draw > 10u) aset.draw = 3; aset.warm &= 1u;
 }
 static void aset_save(void) { q_save("android", -1, &aset, sizeof aset, SECTOR_MAX); }
 
@@ -191,6 +198,75 @@ static uint64_t now_us(void)
     return (uint64_t)ts.tv_sec * 1000000u + (uint64_t)ts.tv_nsec / 1000u;
 }
 
+
+/* ------------------------------------------------------------------ (Global: VINTAGE) the drive and the degauss, heard
+ * Mixed in after the engine (whose output fades while the disk runs, as the FM-1's does for its flash), a sample at a
+ * time, made here rather than played back: no two accesses sound alike.
+ *   8" floppy  the motor's low hum and whine; the head loading with a clunk; the head stepping in runs of sharp ticks
+ *              (a few ms apart) between pauses, the tracks it seeks
+ *   hard disk  the spindle's hum and a faint high whine; quick soft chatter, the seeks in bursts
+ *   degauss    a thunk, then a 50 Hz hum dying away over a second and a half */
+typedef struct { float y1, y2, a1, a2, env, dec; } click_t;   /* a struck resonance: a tick, a thump */
+static click_t vt_cl[4];
+static uint32_t vt_rs = 0x1234567u, vt_nstep, vt_wait, vt_prev, vt_pos;
+static float vt_motor, vt_ph1, vt_ph2, dg_ph, dg_amp;
+static uint32_t dg_seen = 0xFFFFFFFFu;
+static float vt_noise(void) { vt_rs ^= vt_rs << 13; vt_rs ^= vt_rs >> 17; vt_rs ^= vt_rs << 5; return (float)(int32_t)vt_rs * (1.0f / 2147483648.0f); }
+static void vt_strike(uint32_t i, float hz, float q, float amp, float ms)   /* set a resonance ringing */
+{
+    float w = 2.0f * 3.14159265f * hz / 44100.0f, r = 1.0f - w / (2.0f * q);
+    click_t *c = &vt_cl[i & 3u];
+    c->a1 = 2.0f * r * cosf(w); c->a2 = -r * r; c->env = amp; c->dec = expf(-1.0f / (ms * 44.1f));
+    c->y1 = c->y2 = 0.0f;
+}
+static float vt_click(click_t *c)
+{
+    float x = c->env * vt_noise(), y = x + c->a1 * c->y1 + c->a2 * c->y2;
+    c->y2 = c->y1; c->y1 = y; c->env *= c->dec;
+    return y;
+}
+static void vt_audio(int32_t *blk, uint32_t n)
+{
+    uint32_t i, k;
+    int on = vt_busy, hdd = aset.drive;
+    if (!on && vt_motor < 0.001f && dg_start_ms == dg_seen && dg_amp < 0.001f) return;
+    if (on && !vt_prev) {                       /* the drive starts: the head loads */
+        vt_rs ^= vt_seed; vt_pos = 0; vt_nstep = 0; vt_wait = 2000u;
+        if (!hdd) vt_strike(3, 90.0f, 3.0f, 120.0f, 40.0f);
+    }
+    vt_prev = (uint32_t)on;
+    if (dg_start_ms != dg_seen) { dg_seen = dg_start_ms; dg_amp = 1.0f; vt_strike(2, 55.0f, 2.0f, 90.0f, 120.0f); }
+    for (i = 0; i < n; i++) {
+        float o = 0.0f;
+        vt_motor += ((on ? 1.0f : 0.0f) - vt_motor) * 0.0002f;   /* (spinning up and down, ~100 ms) */
+        if (vt_motor > 0.001f) {
+            vt_ph1 += (hdd ? 120.0f : 60.0f) / 44100.0f; if (vt_ph1 >= 1.0f) vt_ph1 -= 1.0f;
+            vt_ph2 += (hdd ? 3600.0f : 300.0f) / 44100.0f; if (vt_ph2 >= 1.0f) vt_ph2 -= 1.0f;
+            o += vt_motor * (450.0f * sinf(6.2831853f * vt_ph1) + 160.0f * sinf(12.566371f * vt_ph1)
+                             + (hdd ? 70.0f : 110.0f) * sinf(6.2831853f * vt_ph2) + 60.0f * vt_noise());
+            if (on) {                           /* the head: runs of steps, then a pause */
+                if (vt_wait) vt_wait--;
+                else if (vt_nstep) {
+                    vt_strike(vt_nstep & 1u, hdd ? 1300.0f : 2600.0f, hdd ? 6.0f : 4.0f, hdd ? 3600.0f : 10000.0f, hdd ? 1.2f : 2.5f);
+                    vt_nstep--;
+                    vt_wait = hdd ? 90u + (vt_rs >> 25) : 260u + (vt_rs >> 24) % 80u;   /* (2 ms; 6 ms between steps) */
+                } else {
+                    vt_nstep = 1u + (vt_rs >> 27);  /* a seek: 1 .. 32 tracks */
+                    vt_wait = (hdd ? 1500u : 4000u) + (vt_rs >> 20) % (hdd ? 6000u : 14000u);   /* (then a pause to read) */
+                }
+            }
+        }
+        for (k = 0; k < 4u; k++) if (vt_cl[k].env > 0.5f || vt_cl[k].y1 > 1.0f || vt_cl[k].y1 < -1.0f) o += vt_click(&vt_cl[k]) * 0.05f;
+        if (dg_amp > 0.0005f) {                 /* the degauss's hum, dying away */
+            dg_ph += 50.0f / 44100.0f; if (dg_ph >= 1.0f) dg_ph -= 1.0f;
+            o += dg_amp * (2200.0f * sinf(6.2831853f * dg_ph) + 900.0f * sinf(18.849556f * dg_ph) + 300.0f * vt_noise());
+            dg_amp *= 0.99996f;                 /* (~1.5 s) */
+        }
+        blk[2u * i] += (int32_t)o;
+        blk[2u * i + 1u] += (int32_t)o;
+    }
+}
+
 static void platform_poll(void)
 {
     static int32_t blk[2u * HALF_FRAMES];
@@ -199,6 +275,7 @@ static void platform_poll(void)
         uint32_t w = atomic_load(&q_rw);
         memset(blk, 0, sizeof blk);
         app_audio(blk, HALF_FRAMES);
+        vt_audio(blk, HALF_FRAMES);             /* (the drive, the degauss: after the engine's fade) */
         for (i = 0; i < HALF_FRAMES; i++) {
             int32_t l = blk[2u * i], r = blk[2u * i + 1u];
             q_ring[2u * ((w + i) % RING)] = (int16_t)(l > 32767 ? 32767 : l < -32767 ? -32767 : l);

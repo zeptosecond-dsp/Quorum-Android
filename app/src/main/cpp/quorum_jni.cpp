@@ -125,10 +125,10 @@ JNI void JNICALL FN(crt)(JNIEnv *env, jclass, jobject intensity, jobject ramp, j
     auto *in = static_cast<uint8_t *>(env->GetDirectBufferAddress(intensity));
     auto *rg = static_cast<uint8_t *>(env->GetDirectBufferAddress(ramp));
     if (!in || !rg || env->GetDirectBufferCapacity(intensity) < 240 * 240 || env->GetDirectBufferCapacity(ramp) < 1024) return;
-    if (env->GetArrayLength(gain) < 4) return;
-    jint g[4];
+    if (env->GetArrayLength(gain) < 5) return;
+    jint g[5];
     quorum_crt(in, rg, reinterpret_cast<int32_t *>(g));
-    env->SetIntArrayRegion(gain, 0, 4, g);
+    env->SetIntArrayRegion(gain, 0, 5, g);
 }
 // a finger on the screen: act 0 down, 1 move, 2 up; x, y on the glass in the firmware's pixels (0 .. 240)
 JNI void JNICALL FN(touch)(JNIEnv *, jclass, jint act, jfloat x, jfloat y) { quorum_touch(act, x, y); }
