@@ -6,8 +6,8 @@ finger as a Fairlight-style lightpen.
 
 ## Status
 
-The firmware runs on the phone with its sound and its own screen, played from a stand-in FM-1 panel (encoders as drag
-strips, the fourteen buttons, the 27 keys) and, more and more, by touching the screen itself: the header, the Index,
+The firmware runs on the phone with its sound and its own screen, played by touching the screen (the FM-1's knobs and
+buttons are gone; each page's footer is a row of command words) and the 27-key keyboard under it: the header, the Index,
 every page's K1-K4 values (slide bar or tap-to-step), pins in the mod and gate matrices, the Modulators page (tabs; FGs dragged by their peak and end; four drawable
 breakpoint envelopes), drag-scrolling for the Disk, the matrices and the piano roll,
 and Global: VDU with the scanline settings. New pages are drawn in line by line, as on the FM-1.

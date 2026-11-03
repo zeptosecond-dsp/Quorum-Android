@@ -16,6 +16,12 @@
  *                  two quick taps take it out.
  *   gate matrix    tap a crosspoint: a pin in or out.
  * A finger that lands on a file or a crosspoint and moves scrolls instead: only a tap that stays put is a tap.
+ *   footers        each page's command words (what the FM-1's PLAY, SEL, SAVE, REC did there, and its ALGORITHM /
+ *                  PRESETS switches): tap one. A value among them (VOICE's ROOT, SPLIT's N) gets the slide bar.
+ *   Disk           LOAD, SAVE (tap again to confirm, as the FM-1's buttons), NAME: tap letters into the name, < > move.
+ *   key sequencer  tap an empty cell for a note, drag right to tie it; drag a note's left part to move it, its right
+ *                  end to stretch it; two quick taps take it out. Drag the keys down the side for higher or lower;
+ *                  tap a triangle for that step, swipe them for another page; tap the STEP line for the next page.
  *   Modulators     the tabs across the top go straight to a part. An FG: drag its peak sideways for RISE, its end for
  *                  FALL; tap the shape for the next CURVE. An envelope: drag a stroke across the grid and it snaps to
  *                  points; tap the grid for a point (or to choose the one there); tap a point to choose it (its
@@ -88,7 +94,7 @@ static void value_tap(uint32_t knob, const tgt_t *t)
 {
     kn_t *k;
     knobs_for(page, sub, bank);
-    k = &KN[knob & 3u];
+    k = &KN[knob < (uint32_t)(sizeof KN / sizeof KN[0]) ? knob : 0u];
     if (k->fmt == F_NONE) return;
     if (TB.open && TB.knob == knob) { bar_close(); return; }
     if (k->hi - k->lo < 6) {                    /* a switch: the next setting, round again */
@@ -120,6 +126,7 @@ static void bar_drag(float x, float y)
     v = (int32_t)(TB.acc + (TB.acc >= 0.0f ? 0.5f : -0.5f));
     if (k->lo < 0 && k->hi > 0 && (TB.acc < 0.0f ? -TB.acc : TB.acc) < span * 0.03f) v = 0;   /* (a soft stop at zero) */
     if (v != kn_get(k)) {
+        kn_old = kn_get(k);
         kn_put(k, v);
         after_change(page, sub, TB.knob, bank);
         knobs_for(page, sub, bank);
@@ -173,7 +180,7 @@ static void scroll_drag(float x, float y)
     TS.ay -= (float)n * rh; TS.ax -= (float)m * cw;
     if (n || m) scroll_by(n, m);
 }
-static int scrolls(void) { return page == PG_MOD || page == PG_GMAT || page == PG_PATCH || (page == PG_SEQ && sub >= NSEQ); }
+static int scrolls(void) { return page == PG_MOD || page == PG_GMAT || page == PG_PATCH; }
 
 static void pending_tap(const tgt_t *t)         /* a tap that stayed put, on a file or a crosspoint */
 {
@@ -339,6 +346,158 @@ static void mod_up(void)
     TM.mode = 0;
 }
 
+/* ---- the command words */
+static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: the state in the word) */
+{
+    s[0] = 0;
+    switch (id) {
+    case C_SEED: s_cat(s, "SEED"); break;
+    case C_FIRE: s_cat(s, "FIRE"); break;
+    case C_FILT: s_cat(s, P.k[sub & 1u].filt ? "FILTER" : "SUM"); break;
+    case C_ROUTE: s_cat(s, P.route_pre ? "PRE" : "POST"); break;
+    case C_FREE: s_cat(s, P.gen[sub & 3u].mode ? "CLOCKED" : "FREE"); break;
+    case C_F0: s_cat(s, P.anchor ? "F0 ON" : "F0 OFF"); break;
+    case C_ROOT: s_cat(s, "ROOT "); s_note(s, P.root); break;
+    case C_N: s_cat(s, "N "); s_int(s, P.sn); break;
+    case C_KEYS: s_cat(s, P.kbd[(sub - 1u) & 1u] ? "KEYS ON" : "KEYS OFF"); break;
+    case C_GATE: s_cat(s, P.seq[sub % NSEQ].gate[scur[sub % NSEQ] & 7u] ? "STEP GATE ON" : "STEP GATE OFF"); break;
+    case C_REC: s_cat(s, ks_rec ? "REC ON" : "REC"); break;
+    case C_AUTO: s_cat(s, ks_auto ? "AUTO ON" : "AUTO"); break;
+    case C_CLEAR: s_cat(s, ks_clr && fm1_ms - t_clr < 2000u ? "CLEAR?" : "CLEAR"); break;
+    case C_NOFB: s_cat(s, "NO FB"); break;
+    case C_PHSLOW: s_cat(s, P.ph.slow ? "11K" : "22K"); break;
+    case C_DCLEAR: s_cat(s, "CLEAR"); break;
+    case C_FREEZE: s_cat(s, P.rv.freeze ? "FROZEN" : "FREEZE"); break;
+    case C_RVRATE: s_cat(s, P.rv.rate ? "11K" : "22K"); break;
+    case C_QUANT: s_cat(s, qsel ? "QUANT B " : "QUANT A "); s_cat(s, P.qon[qsel & 1u] ? "ON" : "OFF"); break;
+    case C_RESETMAX: s_cat(s, "RESET MAX"); break;
+    case C_LOAD: s_cat(s, pconf == PC_LOAD ? "LOAD?" : "LOAD"); break;
+    case C_SAVE: s_cat(s, pconf == PC_SAVE ? "SAVE?" : "SAVE"); break;
+    case C_NAME: s_cat(s, "NAME"); break;
+    case C_NLEFT: s_cat(s, "<"); break;
+    case C_NRIGHT: s_cat(s, ">"); break;
+    case C_NSPACE: s_cat(s, "SPACE"); break;
+    case C_NOK: s_cat(s, "OK"); break;
+    case C_NCANCEL: s_cat(s, "CANCEL"); break;
+    default: break;
+    }
+}
+static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the FM-1's press, or the switch itself */
+{
+    switch (t->a) {
+    case C_SEED: case C_FIRE: case C_KEYS: case C_GATE: case C_NOFB: case C_DCLEAR: case C_FREEZE: case C_QUANT:
+    case C_RESETMAX: case C_NAME: case C_NCANCEL:
+        *b |= 1u << BTN_PLAY; break;            /* (what PLAY did on this page) */
+    case C_F0: case C_LOAD: *b |= 1u << BTN_SEL; break;
+    case C_SAVE: case C_NOK: *b |= 1u << BTN_SAVE; break;
+    case C_REC: *b |= 1u << BTN_REC; break;
+    case C_CLEAR: *b |= 1u << BTN_SEQ; break;   /* (twice in 2 s: clear) */
+    case C_NLEFT: *b |= 1u << BTN_OCT_DOWN; break;
+    case C_NRIGHT: *b |= 1u << BTN_OCT_UP; break;
+    case C_NSPACE: if (p_ren) { p_rname[p_rpos] = ' '; p_rpos = (p_rpos + 1u) & 7u; } break;
+    case C_AUTO: ks_auto ^= 1u; if (ks_auto) { P.ks.run = 0; ks_rec = 0; ks_run_was = 0; } break;   /* (SEL + REC) */
+    case C_FILT: P.k[sub & 1u].filt ^= 1u; dirty_partials = 1; break;
+    case C_ROUTE: P.route_pre ^= 1u; dirty_partials = 1; break;
+    case C_FREE: P.gen[sub & 3u].mode ^= 1u; dirty_partials = 1; break;
+    case C_PHSLOW: P.ph.slow ^= 1u; break;
+    case C_RVRATE: P.rv.rate ^= 1u; dirty_partials = 1; break;
+    case C_PATHA: qsel = 0; break;
+    case C_PATHB: qsel = 1; break;
+    case C_ROOT: case C_N: {                    /* a value: the slide bar */
+        tgt_t v = *t;
+        knobs_for(page, sub, bank);
+        kn_old = kn_get(&KN[4]);
+        value_tap(4u, &v);
+    } break;
+    default: break;
+    }
+}
+
+/* ---- the piano roll (the firmware's page R: x0 26, a step 51 wide, rows 8 high from y 2, 14 rows; four steps a page).
+ * A note being placed or moved is the firmware's own floating bar (kc_place), drawn flashing, put down on lift. */
+static struct {
+    int mode;                                   /* 0 none, 1 stretch, 2 move, 3 the keys (scroll), 4 the triangles */
+    uint32_t moved, fresh, p0;
+    int32_t grab, top0, start;
+    float x0, y0;
+} TK;
+static uint32_t ks_steps(void) { return P.ks.steps < 1u ? 1u : P.ks.steps > KS_MAX ? KS_MAX : P.ks.steps; }
+static uint32_t ks_page0(void)                  /* the first step of the page shown (as draw_keys picks it) */
+{
+    return ((P.ks.run && !kc_place && fm1_ms - t_kedit > 3000u ? ks_pos_v : kc_pos) / KS_SPP) * KS_SPP;
+}
+static void ks_cell(float x, float y, uint32_t *pos, uint32_t *note)
+{
+    int32_t c = cl((int32_t)((x - 26.0f) / 51.0f), 0, 3), r = cl((int32_t)((y - (float)BODY_Y - 2.0f) / 8.0f), 0, (int32_t)KV_ROWS - 1);
+    *pos = TK.p0 + (uint32_t)c; *note = kv_top - (uint32_t)r;
+}
+static int keys_down(const tgt_t *hit, float x, float y)
+{
+    uint32_t pos, note, steps = ks_steps();
+    if (hit->kind == T_KSTRIP) { TK.mode = 3; TK.y0 = y; TK.top0 = (int32_t)kv_top; return 1; }
+    if (hit->kind == T_KTRI) { TK.mode = 4; TK.x0 = x; TK.y0 = y; TK.moved = 0; TK.p0 = ks_page0(); return 1; }
+    if (hit->kind == T_KPG) {                   /* the next page (round again) */
+        uint32_t npg = (steps + KS_SPP - 1u) / KS_SPP;
+        kc_pos = ((ks_page0() / KS_SPP + 1u) % npg) * KS_SPP; kc_len = 1; t_kedit = fm1_ms;
+        return 1;
+    }
+    if (hit->kind != T_ROLL) return 0;
+    TK.p0 = ks_page0();
+    ks_cell(x, y, &pos, &note);
+    t_kedit = fm1_ms;
+    if (pos >= steps) return 1;
+    TK.x0 = x; TK.y0 = y; TK.moved = 0;
+    {
+        int32_t at = ks_at(pos);
+        if (at >= 0 && P.ks.note[at] == note) {  /* a note: picked up; its right end stretches, the rest moves */
+            uint32_t len = P.ks.len[at] ? P.ks.len[at] : 1u, endv = (uint32_t)at + len - 1u;
+            float frac = (x - 26.0f) / 51.0f - (float)(int32_t)((x - 26.0f) / 51.0f);
+            if (endv > TK.p0 + 3u) endv = TK.p0 + 3u;
+            TK.mode = pos == endv && (len > 1u || frac > 0.5f) ? 1 : 2;
+            TK.grab = (int32_t)pos - at; TK.fresh = 0; TK.start = at;
+            kc_pos = (uint32_t)at; kc_note = note; kc_len = len; kc_picked = 1; kc_place = 1;
+            P.ks.note[at] = 0; P.ks.len[at] = 0;
+        } else {                                /* an empty cell: a new note, stretched by the drag */
+            TK.mode = 1; TK.fresh = 1; TK.grab = 0; TK.start = (int32_t)pos;
+            kc_pos = pos; kc_note = note; kc_len = 1; kc_picked = 0; kc_place = 1;
+        }
+    }
+    return 1;
+}
+static void keys_move(float x, float y)
+{
+    float dx = x - TK.x0, dy = y - TK.y0;
+    uint32_t pos, note, steps = ks_steps();
+    if (!TK.moved && dx * dx + dy * dy > 16.0f) TK.moved = 1;
+    t_kedit = fm1_ms;
+    if (TK.mode == 3) { kv_top = (uint32_t)cl(TK.top0 + (int32_t)((y - TK.y0) / 8.0f), 21 + (int32_t)KV_ROWS - 1, 96); return; }
+    if (TK.mode == 4) return;
+    ks_cell(x, y, &pos, &note);
+    if (TK.mode == 1) kc_len = (uint32_t)cl((int32_t)pos - (int32_t)kc_pos + 1, 1, (int32_t)(steps - kc_pos));
+    else if (TK.mode == 2 && TK.moved) {
+        kc_pos = (uint32_t)cl((int32_t)pos - TK.grab, 0, (int32_t)steps - 1);
+        kc_note = note;
+        if (kc_len > steps - kc_pos) kc_len = steps - kc_pos;
+    }
+}
+static void keys_up(float x)
+{
+    if (TK.mode == 4) {                         /* the triangles: a tap, that step; a swipe, a page */
+        uint32_t steps = ks_steps(), npg = (steps + KS_SPP - 1u) / KS_SPP, pg = TK.p0 / KS_SPP;
+        float dx = x - TK.x0;
+        if (dx > 24.0f || dx < -24.0f) pg = dx < 0.0f ? (pg + 1u) % npg : (pg + npg - 1u) % npg;
+        else { uint32_t j = (uint32_t)cl((int32_t)((x - 26.0f) / 68.0f + 0.5f), 0, 3); kc_pos = TK.p0 + j < steps ? TK.p0 + j : steps - 1u; kc_len = 1; TK.mode = 0; t_kedit = fm1_ms; return; }
+        kc_pos = pg * KS_SPP; kc_len = 1; t_kedit = fm1_ms;
+    } else if (TK.mode == 1 || TK.mode == 2) {
+        tgt_t t = {0, 0, 0, 0, T_ROLL, (uint8_t)kc_pos, (uint8_t)kc_note};
+        int dbl = !TK.moved && tap_double(&t);
+        if (dbl && !TK.fresh) kc_place = 0;     /* two quick taps: out (it stays picked up, and goes) */
+        else { ks_put(kc_pos, kc_note, kc_len); kc_place = 0; }
+        t_kedit = fm1_ms;
+    }
+    TK.mode = 0;
+}
+
 static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
@@ -369,6 +528,9 @@ static void touch_frame(uint32_t *b)
                 continue;
             }
             if (page == PG_FG && mod_down(hit, x, y)) continue;
+            if (page == PG_SEQ && sub >= NSEQ && keys_down(hit, x, y)) { bar_close(); continue; }
+            if (hit->kind == T_CMD) { if (hit->a != C_ROOT && hit->a != C_N) bar_close(); cmd_tap(hit, b); continue; }
+            if (hit->kind == T_CHAR) { if (p_ren) { p_rname[p_rpos] = NAME_CH[hit->a % NCHARS]; p_rpos = (p_rpos + 1u) & 7u; } continue; }
             if (hit->kind == T_PAGE && page == PG_INDEX) {
                 icur = hit->a;                  /* the Index opens it, as SEL does (set here, not as a SEL press:
                                                    a press would carry on into the new page, the Disk's "load") */
@@ -384,6 +546,7 @@ static void touch_frame(uint32_t *b)
         } else if (act == TE_MOVE) {
             if (TB.drag) bar_drag(x, y);
             else if (TM.mode) mod_move(x, y);
+            else if (TK.mode) keys_move(x, y);
             else if (TS.scroll || TS.pending) {
                 float dx = x - TS.x0, dy = y - TS.y0;
                 if (!TS.moved && dx * dx + dy * dy > 25.0f) {   /* (5 pixels: it's a drag) */
@@ -394,6 +557,7 @@ static void touch_frame(uint32_t *b)
             }
         } else {
             if (TM.mode) mod_up();
+            if (TK.mode) keys_up(x);
             if (TS.pending && !TS.moved) pending_tap(&TS.at);
             TS.pending = 0;
             TS.scroll = 0;

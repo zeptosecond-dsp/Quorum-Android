@@ -5,7 +5,17 @@
  * Touch targets: as a page draws itself it says where its touchable things are (a knob's readout, an Index line);
  * a tap goes to whatever is under the finger. The list is rebuilt every time the page is drawn. */
 
-enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT, T_TAB, T_FGSHAPE, T_FGPEAK, T_FGEND, T_EGGRID };   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
+enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT, T_TAB, T_FGSHAPE, T_FGPEAK, T_FGEND, T_EGGRID,
+       T_CMD, T_CHAR, T_ROLL, T_KSTRIP, T_KTRI, T_KPG };   /* T_CMD: a command word in a page's footer (a = C_...);
+                                                   T_CHAR: a letter of the Disk's name picker (a = its index); the piano
+                                                   roll: its lane, its keys down the side, its triangles, its PG line */
+/* the command words (each page's footer: tappable, as the CMI's command line). Most are what the FM-1's PLAY, SEL, SAVE,
+ * REC, SEQ, OCT did on that page; a few were the ALGORITHM / PRESETS encoders' */
+enum { C_SEED, C_FIRE, C_FILT, C_ROUTE, C_FREE, C_F0, C_ROOT, C_N, C_KEYS, C_GATE, C_REC, C_AUTO, C_CLEAR, C_NOFB,
+       C_PHSLOW, C_DCLEAR, C_FREEZE, C_RVRATE, C_PATHA, C_PATHB, C_QUANT, C_RESETMAX, C_LOAD, C_SAVE, C_NAME, C_NLEFT,
+       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, NCMD };
+static int32_t kn_old;                         /* a value as it was before the finger moved it (VOICE ROOT: the held
+                                                   paths move with it) */   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
                                                    page); a Disk file (a = its slot); a crosspoint of the mod or gate
                                                    matrix (a = the source, b = the destination as the page orders
                                                    them); a phone-only switch (a: 0 the lightpen's cursor); a
@@ -53,5 +63,6 @@ static int touch_take(int32_t *act, int32_t *x16, int32_t *y16)
     return 1;
 }
 
+static void cmd_label(uint32_t id, char *s);   /* (android_touch.c) a command word as it reads now */
 static void touch_frame(uint32_t *b);          /* (android_touch.c) the taps, once a pass of the main loop */
 static void touch_draw(void);                  /* (android_touch.c) the slide bar, over the body before the tube */

@@ -187,6 +187,7 @@ enum { GD_K1, GD_K2, GD_FG1, GD_FG2, GD_FG3, GD_FG4, GD_SH1, GD_SH2, GD_GA, GD_G
        GD_SQA1, GD_SQA2, GD_SQA3, GD_SQR1, GD_SQR2, GD_SQR3,
 #ifdef QUORUM_ANDROID
        GD_EG1, GD_EG2, GD_EG3, GD_EG4,          /* (Android: each envelope's trigger; a row is a uint32 here) */
+       GD_KST,                                  /* (Android) the keyboard sequencer's step, when its CLOCK is GATE */
 #endif
        NGD };   /* (16: one uint16 a row) */
 enum { SD_FWD, SD_PEND, SD_RND };
@@ -210,7 +211,13 @@ typedef struct { uint8_t order, link1, link2; } rtx_t;
 #define KS_MAX 16u
 typedef struct { uint8_t note[KS_N], len[KS_N], steps, dir, clk, run; } kseq_t;   /* clk 0..10: the master clock /32 .. /1;
                                                                                     11..138: its own, 0.05 .. 12 steps a second */
-#define KS_CLK_MAX 138u   /* the keyboard sequencer: a note
+#ifdef QUORUM_ANDROID
+#define KS_CLK_GATE 139u                        /* (Android) CLOCK past its own rates: a gate from the gate matrix */
+#define KS_CLK_MAX 139u
+#else
+#define KS_CLK_MAX 138u
+#endif
+                  /* the keyboard sequencer: a note
     (0: none) starting at each step, lasting len steps; one at a time (mono) */   /* the chain: one of 6 orders (P D R ...), two links */
 #ifdef QUORUM_ANDROID
 /* (Android) a breakpoint envelope: up to 64 points on a 32 x 16 grid (x 0..32 strictly rising, the first at 0; y 0..16);
@@ -882,12 +889,21 @@ static void ks_block(void)
     if (ks_kick_v) { ks_low = ks_left ? 4u : 0u; ks_left = ks_kick_v; ks_kick_v = 0; }   /* (a key recorded: heard at once) */
     {
         uint32_t go;
+#ifdef QUORUM_ANDROID
+        static uint32_t kst_prev;
+        uint32_t kst = gdst_v >> GD_KST & 1u;
+        if (q->clk == KS_CLK_GATE) { go = kst && !kst_prev; }   /* a gate's rise: a step */
+        else
+#endif
         if (q->clk > 10u) {                     /* its own clock: 0.05 .. 12 steps a second */
             uint32_t ph = ks_ph + (uint32_t)Q_GRID_X100[(q->clk - 11u) & 127u] * 31168u;   /* (2^32 / 137800) */
             go = ph < ks_ph;
             ks_ph = ph;
         } else go = stp != ks_clk_prev && stp % DIVS[10u - q->clk] == 0u;   /* the master clock, every /n steps */
         ks_clk_prev = stp;
+#ifdef QUORUM_ANDROID
+        kst_prev = kst;
+#endif
         if (ks_now_v) { go = 1; ks_now_v = 0; ks_ph = 0; }   /* (started: the first step at once, not at the next tick) */
         if (go) {
             if (ks_restart_v) { pos = 0; ks_pend = 0; ks_restart_v = 0; }
@@ -1462,14 +1478,14 @@ static const char *const GS_NAME[NGS] = {"GEN1", "GEN2", "GEN3", "GEN4", "LFO1",
     };
 static const char *const GD_SHORT[NGD] = {"K1", "K2", "F1", "F2", "F3", "F4", "S1", "S2", "GA", "GB", "Q1", "Q2", "Q3", "R1", "R2", "R3"
 #ifdef QUORUM_ANDROID
-    , "E1", "E2", "E3", "E4"
+    , "E1", "E2", "E3", "E4", "KS"
 #endif
     };
 static const char *const GD_NAME[NGD] = {"STRIKE 1", "STRIKE 2", "FG1 TRIGGER", "FG2 TRIGGER", "FG3 TRIGGER", "FG4 TRIGGER",
     "SSG 1 CLOCK", "SSG 2 CLOCK", "GRID A STEP", "GRID B STEP", "SEQ 1 ADVANCE", "SEQ 2 ADVANCE", "SEQ 3 ADVANCE",
     "SEQ 1 RESET", "SEQ 2 RESET", "SEQ 3 RESET"
 #ifdef QUORUM_ANDROID
-    , "EG1 TRIGGER", "EG2 TRIGGER", "EG3 TRIGGER", "EG4 TRIGGER"
+    , "EG1 TRIGGER", "EG2 TRIGGER", "EG3 TRIGGER", "EG4 TRIGGER", "KEYS STEP"
 #endif
     };
 static void gins(char *s, uint32_t d)           /* what is pinned into destination d */
@@ -1765,10 +1781,14 @@ enum { F_INT, F_SLEW, F_TILT, F_STR, F_PCT, F_GMODE, F_GRATE, F_MUT, F_ONOFF, F_
        F_DEC, F_FALL, F_SER, F_LSRC, F_OP, F_ROUTE, F_SRULE, F_POINT, F_WIDTH, F_SOFT, F_PMODE, F_FREQ, F_RES, F_BW,
        F_PAN, F_SEMI, F_CENT, F_CLK, F_TEMPO, F_PHOS, F_BRIGHT, F_BITS, F_TUN, F_SCL, F_SROOT, F_COUNT, F_SPACE, F_TPAT,
        F_GOP, F_GMODE2, F_RATE, F_DUTY, F_FGT, F_CURVE, F_FMODE, F_SSGIN, F_DEPTH, F_QRATE, F_STEPN, F_SDIR, F_SADDR,
-       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NONE };   /* (F_SCAN, F_DARK:
+       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_NONE };   /* (F_SCAN, F_DARK:
        Android) */
 typedef struct { const char *name; uint8_t *p; int16_t lo, hi; uint8_t fmt, step; } kn_t;
+#ifdef QUORUM_ANDROID
+static kn_t KN[6];                              /* (Android: 4, 5 values a page's command words set, e.g. VOICE's ROOT) */
+#else
 static kn_t KN[4];
+#endif
 static void kn_set(uint32_t i, const char *name, void *p, int32_t lo, int32_t hi, uint32_t fmt, uint32_t step)
 {
     KN[i].name = name; KN[i].p = (uint8_t *)p; KN[i].lo = (int16_t)lo; KN[i].hi = (int16_t)hi; KN[i].fmt = (uint8_t)fmt; KN[i].step = (uint8_t)step;
@@ -1777,7 +1797,13 @@ static uint8_t dummy;
 static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
 {
     uint32_t i;
+#ifdef QUORUM_ANDROID
+    for (i = 0; i < 6u; i++) kn_set(i, "", &dummy, 0, 0, F_NONE, 1);
+    if (pg == PG_VOICE) kn_set(4, "ROOT", &P.root, 21, 72, F_NOTE, 1);   /* (the FM-1's ALGORITHM) */
+    if (pg == PG_SPLIT && sb == 0u) kn_set(4, "N", &P.sn, 2, 8, F_INT, 1);
+#else
     for (i = 0; i < 4u; i++) kn_set(i, "", &dummy, 0, 0, F_NONE, 1);
+#endif
     if (pg == PG_VOICE) {
         kn_set(0, "SLEW", &P.slew, 0, 63, F_SLEW, 1); kn_set(1, "TILT", &P.tilt, 0, 250, F_TILT, 5);
         kn_set(2, "STRETCH", &P.stretch, -30, 60, F_STR, 1); kn_set(3, "LEVEL", &P.level, 0, 127, F_PCT, 1);
@@ -1959,8 +1985,14 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_DMS: s_int(s, LUT_DMS[v & 127]); s_cat(s, "MS"); break;
     case F_ORDER: { static const char *const OR[6] = {"P D R", "P R D", "D P R", "D R P", "R P D", "R D P"}; s_cat(s, OR[v % 6]); } break;
     case F_RULE: s_int(s, v); if (E.g[sub & 1u].rule != (uint8_t)v) { s_cat(s, ">"); s_int(s, E.g[sub & 1u].rule); } break;   /* (moved by the matrix) */
+#ifdef QUORUM_ANDROID
+    case F_KRATE: if (v == (int32_t)KS_CLK_GATE) { s_cat(s, "GATE"); break; }
+                  if (v <= 10) { s_cat(s, P.clk_midi ? "MIDI/" : "MAST/"); s_int(s, DIVS[10 - v]); }
+                  else { uint32_t x = Q_GRID_X100[(v - 11) & 127]; s_dec(s, x, 100u, x < 1000u ? 2u : 1u); s_cat(s, "/S"); } break;
+#else
     case F_KRATE: if (v <= 10) { s_cat(s, P.clk_midi ? "MIDI/" : "MAST/"); s_int(s, DIVS[10 - v]); }
                   else { uint32_t x = Q_GRID_X100[(v - 11) & 127]; s_dec(s, x, 100u, x < 1000u ? 2u : 1u); s_cat(s, "/S"); } break;
+#endif
     case F_CRUSH: if (!v) s_cat(s, "OFF"); else { s_int(s, v); s_cat(s, "B"); } break;
     case F_QRATE: { uint32_t cs = LUT_QPER[v & 127];   /* a cycle, 1/100 s (as S6) */
         if (cs >= 1000u) s_int(s, (int32_t)((cs + 50u) / 100u)); else { s_int(s, (int32_t)(cs / 100u)); s_cat(s, "."); s_int(s, (int32_t)(cs / 10u % 10u)); }
@@ -1973,6 +2005,7 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_SCL: s_cat(s, SCL_NAME[TUN_SCL0[P.tun % NTUN] + (uint32_t)v]); break;
 #ifdef QUORUM_ANDROID
     case F_SCAN: s_int(s, ASET_LINES[v % 5]); break;
+    case F_NOTE: s_note(s, (uint32_t)v); break;
     case F_EGMODE: { static const char *const M[3] = {"TRIG", "GATE", "CYCLE"}; s_cat(s, M[v % 3]); } break;
     case F_EGLEN: if (v < (int32_t)EG_NFREE) { uint32_t cs = EG_LEN_CS[v]; if (cs < 1000u) s_dec(s, cs, 100u, 2u); else s_int(s, (int32_t)(cs / 100u)); s_cat(s, "S"); }
                   else { s_int(s, EG_LEN_STEPS[(v - (int32_t)EG_NFREE) % (int32_t)(EG_NLEN - EG_NFREE)]); s_cat(s, " STEP"); } break;
@@ -2054,6 +2087,24 @@ static void knob_row(uint32_t pathk)            /* K1..K4 along the bottom: the 
     }
 }
 static void footer(const char *t) { cv_text(2, 201, &FONT_S, t, PH_LO); }
+#ifdef QUORUM_ANDROID
+static void cmds(const uint8_t *ids, uint32_t n)   /* (Android) the footer as command words: each boxed, tappable */
+{
+    int32_t x = 1;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        char s[24];
+        int32_t w;
+        cmd_label(ids[i], s);
+        w = text_w(&FONT_S, s) + 6;
+        cv_rect(x, 200, w, 1, PH_LO); cv_rect(x, 216, w, 1, PH_LO); cv_rect(x, 200, 1, 17, PH_LO); cv_rect(x + w - 1, 200, 1, 17, PH_LO);
+        cv_text(x + 3, 201, &FONT_S, s, PH_MID);
+        tgt_add(x, BODY_Y + 198, w, 20, T_CMD, ids[i]);
+        x += w + 4;
+    }
+}
+#define CMDS(...) do { static const uint8_t c_[] = {__VA_ARGS__}; cmds(c_, sizeof c_); } while (0)
+#endif
 
 static void draw_index(uint32_t cur)
 {
@@ -2126,7 +2177,11 @@ static void draw_voice(void)
     s_cat(s, "  A/B");
     cv_text(4, 142, &FONT_S, s, PH_LO);
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_ROOT, C_F0);
+#else
     footer("ALG ROOT  SEL F0  (CLOCK: GRIDS)");
+#endif
     cv_out(BODY_Y);
 }
 
@@ -2152,7 +2207,11 @@ static void draw_grid(void)
         lamp(x, 147, P.lock); cv_text(x + 14, 144, &FONT_S, "LOCK", P.lock ? PH_HI : PH_LO);
     }
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_SEED);
+#else
     footer("OCT A/B  SEL BANK  PLAY SEED");
+#endif
     cv_out(BODY_Y);
 }
 
@@ -2241,7 +2300,11 @@ static void draw_strike(void)
     s[0] = 0; s_cat(s, P.route_pre ? "PRE" : s_ ? "POST>B" : "POST>A"); s_cat(s, k->filt ? " FILT" : " SUM");
     cv_text(236 - text_w(&FONT_S, s), 140, &FONT_S, s, PH_LO);
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_FIRE, C_FILT, C_ROUTE);
+#else
     footer("OCT 1/2 SEL BANK PLAY FIRE");
+#endif
     cv_out(BODY_Y);
 }
 
@@ -2268,7 +2331,11 @@ static void draw_logic(void)                    /* a generator: its input, its L
     }
     cv_text(4, 130, &FONT_S, s, PH_LO);
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_FREE);
+#else
     footer("OCT GEN  ALG FREE/CLOCK");
+#endif
     cv_out(BODY_Y);
 }
 
@@ -2318,7 +2385,11 @@ static void draw_quad(void)                     /* the quadrature LFO: a dot rou
     if (!n) s_cat(s, " -");
     cv_text(4, 134, &FONT_S, s, PH_LO);
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    footer("TAP A TAB FOR ANOTHER");
+#else
     footer("OCT FG/SSG/QUAD");
+#endif
     cv_out(BODY_Y);
 }
 #ifdef QUORUM_ANDROID
@@ -2546,16 +2617,35 @@ static void draw_keys(void)
     s[0] = 0; s_note(s, kc_note); s_cat(s, " STEP "); s_int(s, (int32_t)kc_pos + 1); s_cat(s, " LEN "); s_int(s, (int32_t)kc_len);
     s_cat(s, "  PG "); s_int(s, (int32_t)pg + 1); s_cat(s, "/"); s_int(s, (int32_t)npg);
     cv_text(4, 128, &FONT_S, s, PH_MID);
+#ifdef QUORUM_ANDROID
+    tgt_add(0, BODY_Y + 2, 26, (int32_t)KV_ROWS * rh, T_KSTRIP, 0);          /* the keys: drag for higher or lower */
+    tgt_add(x0, BODY_Y + y0, lw, (int32_t)KV_ROWS * rh, T_ROLL, 0);            /* the lane: notes */
+    tgt_add(x0 - 8, BODY_Y + 113, lw + 16, 12, T_KTRI, 0);                     /* the triangles: a step, a swipe a page */
+    tgt_add(0, BODY_Y + 127, 240, 16, T_KPG, 0);                               /* STEP .. PG: the next page */
+#endif
     s[0] = 0;
+#ifdef QUORUM_ANDROID
+    if (kc_place) s_cat(s, kc_picked ? "MOVING: LIFT TO PUT IT" : "PLACING: LIFT TO PUT IT");
+    else if (ks_clr && fm1_ms - t_clr < 2000u) s_cat(s, "CLEAR AGAIN: ALL NOTES");
+#else
     if (kc_place) s_cat(s, kc_picked ? "MOVING: PLAY PUT, SEL DELETE" : "PLACING: PLAY PUT, SEL DROP");
     else if (ks_clr && fm1_ms - t_clr < 2000u) s_cat(s, "SEQ AGAIN: CLEAR ALL NOTES");
+#endif
     else if (ks_auto) s_cat(s, "AUTO: A KEY STARTS RECORDING");
     else if (ks_rec) s_cat(s, "RECORDING: PLAY THE KEYS");
     else if (q->run) { s_cat(s, "RUNNING  KEYS TRANSPOSE "); s_sdec(s, (int32_t)P.root - ks_base, 1u, 0u); }
+#ifdef QUORUM_ANDROID
+    else s_cat(s, "STOPPED");
+#else
     else s_cat(s, "STOPPED  (REC RECORDS)");
+#endif
     cv_text(4, 144, &FONT_S, s, kc_place || ks_rec || ks_auto || ks_clr ? PH_HI : PH_LO);
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_REC, C_AUTO, C_CLEAR);
+#else
     footer("ALG STEP PRES NOTE SELECT LEN");
+#endif
     cv_out(BODY_Y);
 }
 static void ks_put(uint32_t pos, uint32_t note, uint32_t len)   /* a note in: anything under it out, the one before cut short */
@@ -2609,7 +2699,11 @@ static void draw_seq(void)                      /* a sequencer: its steps as bar
     }
     cv_text(4, 140, &FONT_S, s, PH_LO);
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_GATE);
+#else
     footer("OCT SEQ SEL BANK PLAY GATE");
+#endif
     cv_out(BODY_Y);
 }
 static uint32_t grow, gcol, gtop, gleft;       /* the gate matrix's cursor and window */
@@ -2726,7 +2820,11 @@ static void draw_split(void)
         cv_text(4, 126, &FONT_S, s, PH_MID);
         cv_text(4, 142, &FONT_S, "SOLID: PATH A  LINES: PATH B", PH_LO);
         knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_N);
+#else
         footer("OCT PART  ALG N");
+#endif
     } else {
         uint32_t k = sub - 1u, h;
         const ppar_t *q = &P.pth[k];
@@ -2751,7 +2849,11 @@ static void draw_split(void)
         else { s_cat(s, "KEYS: OFF, HELD ON "); s_note(s, P.droot[k]); }
         cv_text(4, 142, &FONT_S, s, P.kbd[k] ? PH_LO : PH_HI);
         knob_row(k);
+#ifdef QUORUM_ANDROID
+    CMDS(C_KEYS);
+#else
         footer("OCT PART SEL BANK PLAY KEYS");
+#endif
     }
     cv_out(BODY_Y);
 }
@@ -2798,8 +2900,16 @@ static void draw_tuning(void)                   /* GLOBAL: TUNING, as Arcturus S
     }
     s[0] = 0; s_cat(s, "GLIDE "); s_int(s, P.glide[qsel & 1u]);
     cv_text(112, 120, &FONT_S, s, PH_MID);
+#ifdef QUORUM_ANDROID
+    tgt_add(0, BODY_Y + 1, 240, 18, T_KNOB, 0); tgt_add(0, BODY_Y + 19, 240, 18, T_KNOB, 1);
+    tgt_add(0, BODY_Y + 37, 240, 18, T_KNOB, 2); tgt_add(108, BODY_Y + 119, 132, 18, T_KNOB, 3);
+    tgt_add(108, BODY_Y + 69, 132, 18, T_CMD, C_PATHA); tgt_add(108, BODY_Y + 91, 132, 18, T_CMD, C_PATHB);
+    cv_text(4, 182, &FONT_S, "TAP A SETTING OR A PATH", PH_LO);
+    CMDS(C_QUANT);
+#else
     cv_text(4, 182, &FONT_S, "K1 TUNE K2 SCALE K3 ROOT", PH_LO);
     cv_text(4, 200, &FONT_S, "SELECT PATH K4 GLIDE PLAY Q", PH_LO);
+#endif
     cv_out(BODY_Y);
 }
 #ifdef QUORUM_ANDROID
@@ -2889,7 +2999,11 @@ static void draw_engine(void)                   /* GLOBAL: ENGINE: the hardware 
     s[0] = 0; s_cat(s, "QUORUM "); s_cat(s, Q_VERSION);
     cv_text(4, 140, &FONT_S, s, PH_LO);
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_RESETMAX);
+#else
     footer("OCT PART  PLAY: RESET MAX");
+#endif
     cv_out(BODY_Y);
 }
 
@@ -2931,7 +3045,11 @@ static void draw_phaser(void)
         }
     }
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_NOFB, C_PHSLOW);
+#else
     footer("PRESETS 22/11K  PLAY: NO FB");
+#endif
     cv_out(BODY_Y);
 }
 static void draw_delay(void)
@@ -2958,7 +3076,11 @@ static void draw_delay(void)
         cv_rect(40 + (int32_t)(w * 196u / QD_N), yc - 24, 1, 49, PH_HI);
     }
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_DCLEAR);
+#else
     footer("SEL BANK  PLAY: CLEAR");
+#endif
     cv_out(BODY_Y);
 }
 static void draw_reverb(void)
@@ -2977,7 +3099,11 @@ static void draw_reverb(void)
         if (h) cv_rect(36 + (int32_t)i, 150 - h, 1, h, i + 1u == HISTN ? PH_HI : PH_MID);
     }
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    CMDS(C_FREEZE, C_RVRATE);
+#else
     footer("PRESETS RATE  PLAY: FREEZE");
+#endif
     cv_out(BODY_Y);
 }
 static void draw_routing(void)
@@ -3011,7 +3137,11 @@ static void draw_routing(void)
         }
     }
     knob_row(0);
+#ifdef QUORUM_ANDROID
+    footer("TAP THE TITLE: NEXT EFFECT");
+#else
     footer("OCT / FX: NEXT");
+#endif
     cv_out(BODY_Y);
 }
 
@@ -3515,6 +3645,24 @@ static void draw_disk(void)
         if (slot == ploaded) cv_text(228, y, &FONT_S, "*", PH_HI);   /* (the one playing) */
         if (p_ren && slot == cur && (fm1_ms / 300u) & 1u) cv_rect(22 + (3 + (int32_t)p_rpos) * 8, y + 14, 8, 2, PH_HI);
     }
+#ifdef QUORUM_ANDROID
+    if (p_ren) {                                /* naming: the letters to tap, each into the place under the cursor */
+        uint32_t i;
+        for (i = 1; i < NCHARS; i++) {
+            int32_t x = 4 + (int32_t)((i - 1u) % 13u) * 18, y = 150 + (int32_t)((i - 1u) / 13u) * 16;
+            char t[2] = {NAME_CH[i], 0};
+            cv_text(x + 4, y, &FONT_S, t, PH_MID);
+            tgt_add(x, BODY_Y + y, 18, 16, T_CHAR, i);
+        }
+        CMDS(C_NLEFT, C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL);
+    } else {
+        if (*pmsg) cv_text(4, 152, &FONT_S, pmsg, PH_HI);
+        else if (pconf == PC_SAVE) cv_text(4, 152, &FONT_S, "SAVE AGAIN: OVERWRITE", PH_HI);
+        else if (pconf == PC_LOAD) cv_text(4, 152, &FONT_S, cur == P_RANDOM ? "LOAD AGAIN: ROLL THE DICE" : "LOAD AGAIN: LOAD IT", PH_HI);
+        cv_text(4, 176, &FONT_S, "TAP A FILE, THEN A COMMAND", PH_LO);
+        CMDS(C_LOAD, C_SAVE, C_NAME);
+    }
+#else
     if (p_ren) {
         cv_text(4, 152, &FONT_S, "NAME: SELECT TURNS A LETTER", PH_HI);
         cv_text(4, 168, &FONT_S, "SEL/OCT: NEXT/MOVE SAVE: OK", PH_LO);
@@ -3526,6 +3674,7 @@ static void draw_disk(void)
         cv_text(4, 168, &FONT_S, "SEL: LOAD   SAVE: SAVE", PH_LO);
         cv_text(4, 184, &FONT_S, "PLAY: NAME", PH_LO);
     }
+#endif
     cv_out(BODY_Y);
 }
 
@@ -3544,6 +3693,11 @@ static void after_change(uint32_t pg, uint32_t sb, uint32_t knob, uint32_t bk)
     if (pg == PG_GRID && knob == 3u && bk == 1u) { t_halfb = t_half; half_b = half_n; }   /* (lockstep on or off: B in phase with A) */
     if (pg == PG_GLOBAL && sb == 0u && knob == 0u) P.scl = 0;    /* (a new tuning: its first scale) */
 #ifdef QUORUM_ANDROID
+    if (pg == PG_VOICE && knob == 4u) {         /* the root moved by the finger: the held paths with it, as ALGORITHM */
+        int32_t d = (int32_t)P.root - kn_old, i;
+        for (i = 0; i < 2; i++) P.droot[i] = (uint8_t)cl((int32_t)P.droot[i] + d, 12, 96);
+        kn_old = P.root;
+    }
     if (pg == PG_FG && sb > NFG + NSSG && knob == 3u) {   /* an envelope's mark: one point each */
         uint32_t k = (sb - NFG - NSSG - 1u) % NEG, i;
         int32_t c = eg_sel[k];
