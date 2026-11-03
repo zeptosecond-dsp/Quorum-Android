@@ -1391,6 +1391,9 @@ static void app_audio(int32_t *out, uint32_t n)
 #ifndef DINGHY_HOST
     uint32_t t0 = fm1_ticks(), us;
 #endif
+#ifdef QUORUM_ANDROID
+    uint64_t a0 = now_us();                     /* (the phone: the engine's time, as the FM-1's timer measures it) */
+#endif
     for (b = 0; b + SUB <= n; b += SUB)
         render(out + 2u * b);
     if (mute || out_gain < 32767) {             /* a short fade, out for a flash save and back in */
@@ -1406,6 +1409,13 @@ static void app_audio(int32_t *out, uint32_t n)
     us_sum += us;
     us_n++;
     if (us > us_peak) us_peak = us;
+#endif
+#ifdef QUORUM_ANDROID
+    {
+        uint32_t u = (uint32_t)(now_us() - a0) * HALF_FRAMES / (n ? n : 1u);   /* (per 256 frames: the FM-1's budget's) */
+        us_sum += u; us_n++;
+        if (u > us_peak) us_peak = u;
+    }
 #endif
 }
 
@@ -2177,7 +2187,11 @@ static void draw_voice(void)
     s[0] = 0; s_cat(s, "ROOT "); s_note(s, P.root); s_cat(s, P.anchor ? "  F0 ON" : "  F0 OFF");
     s_cat(s, "  CLK "); if (P.clk_midi) s_cat(s, "MIDI"); else { s_dec(s, Q_GRID_X100[E.g[0].rate], 100u, 2u); s_cat(s, "/S"); }
     cv_text(4, 126, &FONT_S, s, PH_MID);
+#ifdef QUORUM_ANDROID
+    s[0] = 0; s_cat(s, "LIVE "); s_int(s, (int32_t)live_v);   /* (the CPU: on Global: Engine only) */
+#else
     s[0] = 0; s_cat(s, "LIVE "); s_int(s, (int32_t)live_v); s_cat(s, "  CPU "); s_dec(s, cpu_avg, 10u, 1u); s_cat(s, "%");
+#endif
     s_cat(s, "  A/B");
     cv_text(4, 142, &FONT_S, s, PH_LO);
     knob_row(0);
@@ -2196,6 +2210,9 @@ static void draw_grid(void)
     uint32_t y, c;
     char s[40];
     cv_begin(240, BODY_H, PH_BG);
+#ifdef QUORUM_ANDROID
+    tgt_add(4, BODY_Y + 1, 232, (int32_t)GHIST * 5 + 2, T_GRIDC, sub & 1u);   /* the grid: a cell of the row now, by touch */
+#endif
     for (y = 0; y < GHIST; y++) {               /* oldest at the top */
         uint32_t r = g->hist[(g->head + y) % GHIST], age = GHIST - 1u - y;
         uint16_t col = age == 0u ? PH_HI : age < 10u ? PH_MID : PH_LO;
@@ -2209,6 +2226,9 @@ static void draw_grid(void)
         int32_t x = 236 - 4 * 8 - 14;
         if (gated(sub & 1u)) { x = 236 - 4 * 8 - 14 - 64; lamp(x + 64, 147, 1); cv_text(x + 78, 144, &FONT_S, "GATE", PH_HI); }
         lamp(x, 147, P.lock); cv_text(x + 14, 144, &FONT_S, "LOCK", P.lock ? PH_HI : PH_LO);
+#ifdef QUORUM_ANDROID
+        tgt_add(x - 4, BODY_Y + 142, 52, 18, T_CMD, C_LOCK);
+#endif
     }
     knob_row(0);
 #ifdef QUORUM_ANDROID

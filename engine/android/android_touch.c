@@ -23,6 +23,8 @@
  *                  end to stretch it; two quick taps take it out. Drag the keys down the side for higher or lower;
  *                  tap a triangle (each at its step's start, as page R) for that step, swipe them for another page;
  *                  tap the STEP line for the next page.
+ *   Grids          every touch on the grid switches a cell of the row now (the bright one) on or off, by its column; a
+ *                  swipe switches each cell it crosses; the grid grows from what is drawn. Tap LOCK for lockstep.
  *   Modulators     the tabs across the top go straight to a part. An FG: drag its peak sideways for RISE, its end for
  *                  FALL; tap the shape for the next CURVE. An envelope: drag a stroke across the grid and it snaps to
  *                  points; tap the grid for a point (or to choose the one there); tap a point to choose it (its
@@ -347,6 +349,19 @@ static void mod_up(void)
     TM.mode = 0;
 }
 
+/* ---- the grids: a cell of the row now, by its column */
+static struct { int on; uint32_t g; int32_t last; } TG;
+static void grid_cell(float x)
+{
+    int32_t c = (int32_t)((x - 8.0f) / 7.0f);
+    grid_t *g = &G[TG.g & 1u];
+    if (c < 0 || c >= (int32_t)NC || c == TG.last) return;
+    TG.last = c;
+    g->row ^= 1u << c;                          /* (the next step grows from it) */
+    g->hist[(g->head + GHIST - 1u) % GHIST] = g->row;   /* (and the screen shows it now) */
+    dirty_partials = 1;
+}
+
 /* ---- the command words */
 static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: the state in the word) */
 {
@@ -380,6 +395,7 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     case C_NSPACE: s_cat(s, "SPACE"); break;
     case C_NOK: s_cat(s, "OK"); break;
     case C_NCANCEL: s_cat(s, "CANCEL"); break;
+    case C_LOCK: s_cat(s, "LOCK"); break;
     case C_BANK: s_cat(s, "BANK "); s_int(s, (int32_t)bank + 1); s_cat(s, "/"); s_int(s, (int32_t)page_banks(page, sub)); break;
     default: break;
     }
@@ -404,6 +420,7 @@ static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the
     case C_PHSLOW: P.ph.slow ^= 1u; break;
     case C_RVRATE: P.rv.rate ^= 1u; dirty_partials = 1; break;
     case C_PATHA: qsel = 0; break;
+    case C_LOCK: P.lock ^= 1u; after_change(PG_GRID, sub, 3u, 1u); break;   /* (as bank 2's K4: B in step with A) */
     case C_PATHB: qsel = 1; break;
     case C_ROOT: case C_N: {                    /* a value: the slide bar */
         tgt_t v = *t;
@@ -531,6 +548,7 @@ static void touch_frame(uint32_t *b)
             }
             if (page == PG_FG && mod_down(hit, x, y)) continue;
             if (page == PG_SEQ && sub >= NSEQ && keys_down(hit, x, y)) { bar_close(); continue; }
+            if (hit->kind == T_GRIDC && page == PG_GRID) { bar_close(); TG.on = 1; TG.g = hit->a; TG.last = -1; grid_cell(x); continue; }
             if (hit->kind == T_CMD) { if (hit->a != C_ROOT && hit->a != C_N) bar_close(); cmd_tap(hit, b); continue; }
             if (hit->kind == T_CHAR) { if (p_ren) { p_rname[p_rpos] = NAME_CH[hit->a % NCHARS]; p_rpos = (p_rpos + 1u) & 7u; } continue; }
             if (hit->kind == T_PAGE && page == PG_INDEX) {
@@ -549,6 +567,7 @@ static void touch_frame(uint32_t *b)
             if (TB.drag) bar_drag(x, y);
             else if (TM.mode) mod_move(x, y);
             else if (TK.mode) keys_move(x, y);
+            else if (TG.on) grid_cell(x);
             else if (TS.scroll || TS.pending) {
                 float dx = x - TS.x0, dy = y - TS.y0;
                 if (!TS.moved && dx * dx + dy * dy > 25.0f) {   /* (5 pixels: it's a drag) */
@@ -560,6 +579,7 @@ static void touch_frame(uint32_t *b)
         } else {
             if (TM.mode) mod_up();
             if (TK.mode) keys_up(x);
+            TG.on = 0;
             if (TS.pending && !TS.moved) pending_tap(&TS.at);
             TS.pending = 0;
             TS.scroll = 0;

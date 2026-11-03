@@ -6,14 +6,14 @@
  * a tap goes to whatever is under the finger. The list is rebuilt every time the page is drawn. */
 
 enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT, T_TAB, T_FGSHAPE, T_FGPEAK, T_FGEND, T_EGGRID,
-       T_CMD, T_CHAR, T_ROLL, T_KSTRIP, T_KTRI, T_KPG };   /* T_CMD: a command word in a page's footer (a = C_...);
+       T_CMD, T_CHAR, T_ROLL, T_KSTRIP, T_KTRI, T_KPG, T_GRIDC };   /* T_GRIDC: a grid's cells (a = the grid) */   /* T_CMD: a command word in a page's footer (a = C_...);
                                                    T_CHAR: a letter of the Disk's name picker (a = its index); the piano
                                                    roll: its lane, its keys down the side, its triangles, its PG line */
 /* the command words (each page's footer: tappable, as the CMI's command line). Most are what the FM-1's PLAY, SEL, SAVE,
  * REC, SEQ, OCT did on that page; a few were the ALGORITHM / PRESETS encoders' */
 enum { C_SEED, C_FIRE, C_FILT, C_ROUTE, C_FREE, C_F0, C_ROOT, C_N, C_KEYS, C_GATE, C_REC, C_AUTO, C_CLEAR, C_NOFB,
        C_PHSLOW, C_DCLEAR, C_FREEZE, C_RVRATE, C_PATHA, C_PATHB, C_QUANT, C_RESETMAX, C_LOAD, C_SAVE, C_NAME, C_NLEFT,
-       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, NCMD };
+       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, C_LOCK, NCMD };
 static int32_t kn_old;                         /* a value as it was before the finger moved it (VOICE ROOT: the held
                                                    paths move with it) */   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
                                                    page); a Disk file (a = its slot); a crosspoint of the mod or gate
