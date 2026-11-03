@@ -5,18 +5,24 @@
  * Touch targets: as a page draws itself it says where its touchable things are (a knob's readout, an Index line);
  * a tap goes to whatever is under the finger. The list is rebuilt every time the page is drawn. */
 
-enum { T_KNOB, T_PAGE, T_DISK };                /* a knob's value (a = K1..K4: 0..3); an Index line (a = the page); a
-                                                   Disk file (a = its slot) */
-typedef struct { int16_t x, y, w, h; uint8_t kind, a; } tgt_t;
-#define NTGT 64
+enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT };   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the page); a
+                                                   Disk file (a = its slot); a crosspoint of the mod or gate matrix
+                                                   (a = the source, b = the destination as the page orders them) */
+typedef struct { int16_t x, y, w, h; uint8_t kind, a, b; } tgt_t;
+#define NTGT 128
 static tgt_t tgt[NTGT];
 static uint32_t tgt_n;
 static void tgt_add(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t kind, uint32_t a)   /* screen coordinates */
 {
     if (tgt_n >= NTGT) return;
     tgt[tgt_n].x = (int16_t)x; tgt[tgt_n].y = (int16_t)y; tgt[tgt_n].w = (int16_t)w; tgt[tgt_n].h = (int16_t)h;
-    tgt[tgt_n].kind = (uint8_t)kind; tgt[tgt_n].a = (uint8_t)a;
+    tgt[tgt_n].kind = (uint8_t)kind; tgt[tgt_n].a = (uint8_t)a; tgt[tgt_n].b = 0;
     tgt_n++;
+}
+static void tgt_add2(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t kind, uint32_t a, uint32_t b)
+{
+    tgt_add(x, y, w, h, kind, a);
+    if (tgt_n && tgt[tgt_n - 1u].kind == kind) tgt[tgt_n - 1u].b = (uint8_t)b;
 }
 
 /* the phone's own settings (Global: VDU), kept in their own file beside the firmware's */

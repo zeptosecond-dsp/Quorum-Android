@@ -11,6 +11,11 @@
  *   lists          drag the page to scroll what runs off it: the Disk's files, the matrices' rows and columns, the
  *                  piano roll's notes (up and down) and pages (swipe left for the next). The cursor stays in view.
  *   Disk           tap a file to choose it.
+ *   mod matrix     tap an empty crosspoint: a pin, and the slide bar for its depth (a soft stop at zero; zero is no
+ *                  pin, as on the FM-1); tap a pin to choose it and bring the bar back, again to put the bar away;
+ *                  two quick taps take it out.
+ *   gate matrix    tap a crosspoint: a pin in or out.
+ * A finger that lands on a file or a crosspoint and moves scrolls instead: only a tap that stays put is a tap.
  *
  * Taps that the panel can do become the panel's own presses (b), so the firmware does exactly what it does for the
  * buttons; values are set as the knobs set them (kn_put, after_change). */
@@ -19,9 +24,18 @@
 #define BAR_H 36
 
 static struct {
-    int scroll;                                 /* a drag in the page, scrolling its list */
-    float sx, sy, ax, ay;
+    int scroll, moved;                          /* a drag in the page, scrolling its list */
+    float sx, sy, ax, ay, x0, y0;
+    int pending;                                /* a file or a crosspoint under the finger: its tap, if it stays put */
+    tgt_t at;
 } TS;
+static uint32_t tap_id, tap_t;                  /* the last tap (kind, a, b) and when: two quick ones */
+static int tap_double(const tgt_t *t)
+{
+    uint32_t id = 1u + ((uint32_t)t->kind << 16 | (uint32_t)t->a << 8 | t->b), d = id == tap_id && fm1_ms - tap_t < 350u;
+    tap_id = d ? 0u : id; tap_t = fm1_ms;
+    return d;
+}
 
 static struct {
     int open, drag;
@@ -97,6 +111,7 @@ static void bar_drag(float x, float y)
     if (TB.acc < (float)k->lo) TB.acc = (float)k->lo;
     if (TB.acc > (float)k->hi) TB.acc = (float)k->hi;
     v = (int32_t)(TB.acc + (TB.acc >= 0.0f ? 0.5f : -0.5f));
+    if (k->lo < 0 && k->hi > 0 && (TB.acc < 0.0f ? -TB.acc : TB.acc) < span * 0.03f) v = 0;   /* (a soft stop at zero) */
     if (v != kn_get(k)) {
         kn_put(k, v);
         after_change(page, sub, TB.knob, bank);
@@ -153,6 +168,27 @@ static void scroll_drag(float x, float y)
 }
 static int scrolls(void) { return page == PG_MOD || page == PG_GMAT || page == PG_PATCH || (page == PG_SEQ && sub >= NSEQ); }
 
+static void pending_tap(const tgt_t *t)         /* a tap that stayed put, on a file or a crosspoint */
+{
+    int dbl = tap_double(t);
+    if (t->kind == T_DISK) { if (!p_ren) { pcur = t->a; pconf = PC_NONE; pmsg = ""; } return; }
+    if (t->kind == T_GMAT && page == PG_GMAT) {
+        grow = t->a; gcol = t->b;
+        P.gmat[t->a] ^= (uint16_t)(1u << t->b);
+        return;
+    }
+    if (t->kind == T_MOD && page == PG_MOD) {
+        int8_t *d = &P.dep[t->a][MD(t->b)];
+        int same = mrow == t->a && mcol == t->b;
+        if (dbl && *d) { *d = 0; dirty_partials = 1; bar_close(); return; }   /* two quick taps: out */
+        if (same && TB.open) { bar_close(); return; }                     /* the bar away */
+        mrow = t->a; mcol = t->b;
+        if (!*d) { *d = 32; dirty_partials = 1; }                         /* a new pin, as PLAY puts it in */
+        knobs_for(page, sub, bank);
+        bar_open(2u, t);                                                  /* K3: DEPTH */
+    }
+}
+
 static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
@@ -169,10 +205,12 @@ static void touch_frame(uint32_t *b)
             if (y < (float)BODY_Y) { bar_close(); header_tap(x, b); continue; }
             for (i = tgt_n; i-- > 0;)
                 if (x >= tgt[i].x && x < tgt[i].x + tgt[i].w && y >= tgt[i].y && y < tgt[i].y + tgt[i].h) { hit = &tgt[i]; break; }
-            if (!hit || hit->kind == T_DISK) {  /* the page itself: a drag scrolls it */
-                bar_close();
-                TS.scroll = scrolls(); TS.sx = x; TS.sy = y; TS.ax = TS.ay = 0.0f;
-                if (hit && !p_ren) { pcur = hit->a; pconf = PC_NONE; pmsg = ""; }   /* (a Disk file: chosen) */
+            if (!hit || hit->kind == T_DISK || hit->kind == T_MOD || hit->kind == T_GMAT) {
+                /* the page itself, a file or a crosspoint: a drag scrolls; a tap that stays put is a tap (on up) */
+                if (!hit) bar_close();
+                TS.scroll = scrolls(); TS.moved = 0; TS.sx = TS.x0 = x; TS.sy = TS.y0 = y; TS.ax = TS.ay = 0.0f;
+                TS.pending = hit != 0;
+                if (hit) TS.at = *hit;
                 continue;
             }
             if (hit->kind == T_PAGE && page == PG_INDEX) {
@@ -185,8 +223,17 @@ static void touch_frame(uint32_t *b)
             }
         } else if (act == TE_MOVE) {
             if (TB.drag) bar_drag(x, y);
-            else if (TS.scroll) scroll_drag(x, y);
+            else if (TS.scroll || TS.pending) {
+                float dx = x - TS.x0, dy = y - TS.y0;
+                if (!TS.moved && dx * dx + dy * dy > 25.0f) {   /* (5 pixels: it's a drag) */
+                    TS.moved = 1; TS.pending = 0;
+                    if (TS.scroll) bar_close();         /* (what the bar points at moves away) */
+                }
+                if (TS.moved && TS.scroll) scroll_drag(x, y);
+            }
         } else {
+            if (TS.pending && !TS.moved) pending_tap(&TS.at);
+            TS.pending = 0;
             TS.scroll = 0;
             TB.drag = 0;
             TB.fine = 1.0f;

@@ -2205,6 +2205,9 @@ static void draw_gmat(void)                     /* sources down, destinations ac
         for (c = gleft; c < gleft + GCOLS && c < NGD; c++) {
             int32_t x = 62 + (int32_t)(c - gleft) * 17;
             uint32_t pin = P.gmat[i] >> c & 1u, cur = i == grow && c == gcol;
+#ifdef QUORUM_ANDROID
+            tgt_add2(x - 1, BODY_Y + y - 1, 17, 15, T_GMAT, i, c);
+#endif
             if (cur) cv_rect(x, y - 1, 15, 15, PH_SEL);
             if (pin) cv_rect(x + 3, y + 2, 9, 9, on ? PH_HI : PH_MID);
             else cv_rect(x + 7, y + 6, 2, 2, cur ? PH_HI : PH_LO);
@@ -2214,7 +2217,11 @@ static void draw_gmat(void)                     /* sources down, destinations ac
     cv_text(2, 162, &FONT_S, s, PH_HI);
     s[0] = 0; s_cat(s, P.gmat[grow] >> gcol & 1u ? "PIN IN" : "NO PIN"); s_cat(s, "  ("); s_int(s, (int32_t)grow + 1); s_cat(s, "/"); s_int(s, (int32_t)NGS); s_cat(s, ")");
     cv_text(2, 180, &FONT_S, s, PH_MID);
+#ifdef QUORUM_ANDROID
+    footer("TAP: PIN IN/OUT  DRAG: SCROLL");
+#else
     footer("K1 SRC K2 DST PLAY PIN  OR'D");
+#endif
     cv_out(BODY_Y);
 }
 
@@ -2241,6 +2248,9 @@ static void draw_mod(void)                      /* the pin grid, EMS style: sour
         for (c = 0; c < MCOLS && mleft + c < NDST; c++) {
             int32_t x = 64 + (int32_t)c * 29, d = P.dep[k][MD(mleft + c)];
             uint32_t cur = k == mrow && mleft + c == mcol;
+#ifdef QUORUM_ANDROID
+            tgt_add2(x - 2, BODY_Y + y - 1, 29, 17, T_MOD, k, mleft + c);
+#endif
             if (cur) cv_rect(x - 2, y - 1, 28, 16, PH_SEL);
             if (d) { s[0] = 0; s_int(s, d); cv_text(x + (d < 0 ? 0 : 4), y, &FONT_S, s, cur ? PH_HI : PH_MID); }
             else cv_rect(x + 10, y + 7, 3, 2, cur ? PH_HI : PH_LO);
@@ -2250,7 +2260,11 @@ static void draw_mod(void)                      /* the pin grid, EMS style: sour
     cv_text(2, 160, &FONT_S, s, PH_HI);
     s[0] = 0; s_cat(s, "DEPTH "); if (P.dep[mrow][MD(mcol)]) s_sdec(s, P.dep[mrow][MD(mcol)], 1u, 0u); else s_cat(s, "--");
     cv_text(2, 178, &FONT_S, s, PH_MID);
+#ifdef QUORUM_ANDROID
+    footer("TAP: PIN  TAP 2X: REMOVE");
+#else
     footer("K1 SRC K2 DST K3 AMT PLAY PIN");
+#endif
     cv_out(BODY_Y);
 }
 
