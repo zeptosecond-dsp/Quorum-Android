@@ -159,16 +159,36 @@ enum { FM_CYCLE, FM_ONCE, FM_GATE };
 #define S_QUAD(k) (NFG + NSSG + 2u + NGEN + (k))   /* the quadrature LFO: SIN+ SIN- COS+ COS- (+-) */
 #define NSEQ 3u                                 /* slew sequencers */
 #define S_SEQ(n) (NFG + NSSG + 2u + NGEN + 4u + (n))
+#ifdef QUORUM_ANDROID
+#define NEG 4u                                  /* (Android) the breakpoint envelopes: sources after the sequencers */
+#define S_EG(k) (NFG + NSSG + 2u + NGEN + 4u + NSEQ + (k))
+#define NSRC (NFG + NSSG + 2u + NGEN + 4u + NSEQ + NEG)
+#else
 #define NSRC (NFG + NSSG + 2u + NGEN + 4u + NSEQ)
+#endif
 enum { D_TILT, D_STR, D_LVL, D_SPLIT, D_FILTA, D_FILTB, D_PANA, D_PANB, D_PITA, D_PITB,
        D_K1PART, D_K1VEL, D_K1SHP, D_K1LVL, D_K2PART, D_K2VEL, D_K2SHP, D_K2LVL,
        D_RULA, D_RULB, D_SPDA, D_SPDB, D_FG1, D_FG2, D_FG3, D_FG4, D_QRATE, D_SQ1, D_SQ2, D_SQ3,
-       D_PHL, D_PHR, D_DLT, D_DLF, D_RVD, D_RVR, D_MUTA, D_MUTB, NDST };   /* (the phaser's left / right sweep, the delays' time and
+       D_PHL, D_PHR, D_DLT, D_DLF, D_RVD, D_RVR, D_MUTA, D_MUTB,
+#ifdef QUORUM_ANDROID
+       D_EG1, D_EG2, D_EG3, D_EG4,              /* (Android) each envelope's length (up: shorter); new ones go last, so
+                                                   saved patches keep their pins */
+#endif
+       NDST };   /* (the phaser's left / right sweep, the delays' time and
                                                         feedback, the reverb's decay and return) */
 /* the gate matrix: rows (sources) and columns (destinations); pins OR'd into each column */
+#ifdef QUORUM_ANDROID
+enum { GS_GEN = 0, GS_LFO = 4, GS_EOC = 8, GS_QNT = 12, GS_CLK = 14, GS_POP = 19, GS_SEQ = 21, GS_KSQ = 24, GS_EG = 25,
+       NGS = 29 };                              /* (Android: GS_EG, each envelope's breakpoint gates) */
+#else
 enum { GS_GEN = 0, GS_LFO = 4, GS_EOC = 8, GS_QNT = 12, GS_CLK = 14, GS_POP = 19, GS_SEQ = 21, GS_KSQ = 24, NGS = 25 };
+#endif
 enum { GD_K1, GD_K2, GD_FG1, GD_FG2, GD_FG3, GD_FG4, GD_SH1, GD_SH2, GD_GA, GD_GB,
-       GD_SQA1, GD_SQA2, GD_SQA3, GD_SQR1, GD_SQR2, GD_SQR3, NGD };   /* (16: one uint16 a row) */
+       GD_SQA1, GD_SQA2, GD_SQA3, GD_SQR1, GD_SQR2, GD_SQR3,
+#ifdef QUORUM_ANDROID
+       GD_EG1, GD_EG2, GD_EG3, GD_EG4,          /* (Android: each envelope's trigger; a row is a uint32 here) */
+#endif
+       NGD };   /* (16: one uint16 a row) */
 enum { SD_FWD, SD_PEND, SD_RND };
 typedef struct { uint8_t val[8], gate[8], len, dir, slew, div, chain; } seq_t;   /* what moves it, first that applies:
     a mod-matrix pin into its ADDRESS (swept); a gate-matrix pin into its ADVANCE, or CHAIN (gated); else the master
@@ -192,6 +212,15 @@ typedef struct { uint8_t note[KS_N], len[KS_N], steps, dir, clk, run; } kseq_t; 
                                                                                     11..138: its own, 0.05 .. 12 steps a second */
 #define KS_CLK_MAX 138u   /* the keyboard sequencer: a note
     (0: none) starting at each step, lasting len steps; one at a time (mono) */   /* the chain: one of 6 orders (P D R ...), two links */
+#ifdef QUORUM_ANDROID
+/* (Android) a breakpoint envelope: up to 64 points on a 32 x 16 grid (x 0..32 strictly rising, the first at 0; y 0..16);
+ * each point's curve is the segment's into it (0 fast start .. 2 straight .. 4 slow start), its gate fires as the
+ * envelope passes it, its mark is one of none, sustain, loop start, loop end. len: 0..20 seconds (EG_LEN_CS), 21..32
+ * master clock steps (EG_LEN_STEPS); the whole grid's width takes that long. */
+#define EG_NPT 64u
+typedef struct { uint8_t x, y, crv, gt, mk; } egpt_t;
+typedef struct { uint8_t mode, len, bip, n; egpt_t pt[EG_NPT]; } egp_t;   /* mode: TRIG, GATE, CYCLE; bip: 0 up, 1 +- */
+#endif
 typedef struct {
     uint8_t root, slew, tilt, level, anchor, tempo, clk_midi, gmode, engver;   /* engver: 1 (8 bit), 2 (12 bit) */
     int8_t stretch;                             /* per mille of the exponent: -30 .. +60 */
@@ -218,7 +247,12 @@ typedef struct {
     /* (new settings go here, above the matrices: a saved patch keeps everything before them, and the matrices by
      * row and column) */
     int8_t dep[NSRC][NDST];                     /* the mod matrix: 0 = no pin, +-63 */
+#ifdef QUORUM_ANDROID
+    uint32_t gmat[NGS];                         /* the gate matrix: bit d = a pin to destination d */
+    egp_t eg[NEG];                              /* (Android) the envelopes: saved after the matrices */
+#else
     uint16_t gmat[NGS];                         /* the gate matrix: bit d = a pin to destination d */
+#endif
 } patch_t;
 /* logic sources: 0 off; 1..11 the clock and its divisions; 12..43 grid A's cells; 44..75 grid B's; 76, 77 pop > half;
  * 78..81 the generators; 82..85 the FGs' end of cycle */
@@ -452,6 +486,9 @@ static void path_push(void)
 static void strike_prepare(uint32_t s);
 static volatile int32_t src_v[NSRC];            /* every matrix source now (Q15): the interrupt keeps them */
 static volatile int8_t fgmod_v[NFG];            /* the matrix on each FG's rate, knob steps */
+#ifdef QUORUM_ANDROID
+static volatile int8_t egmod_v[NEG];            /* the matrix on each envelope's length, knob steps (up: shorter) */
+#endif
 static volatile int8_t qmod_v;                  /* the matrix on the quad LFO's rate, knob steps */
 static volatile int32_t sq_k_v[3];              /* the sequencers' slew steps a block, Q16 */
 static int32_t macc[NDST];                      /* each destination's modulation, knob steps x 256 */
@@ -493,6 +530,9 @@ static void mod_apply(void)                     /* E = P, moved by the matrix (a
         E.g[k].rate = m8(P.g[k].rate, MK(k ? D_SPDB : D_SPDA), 0, 127);   /* (up: faster) */
     }
     for (k = 0; k < NFG; k++) fgmod_v[k] = (int8_t)cl(-MK(D_FG1 + k), -127, 127);   /* (up: faster) */
+#ifdef QUORUM_ANDROID
+    for (k = 0; k < NEG; k++) egmod_v[k] = (int8_t)cl(MK(D_EG1 + k), -127, 127);    /* (up: shorter) */
+#endif
     qmod_v = (int8_t)cl(MK(D_QRATE), -127, 127);
     for (k = 0; k < NSEQ; k++) { int32_t sl = P.seq[k].slew; sq_k_v[k] = 65536 / (1 + sl * sl / 2); }   /* slew 127: ~6 s */
     fxm_v[0] = macc[D_DLT]; fxm_v[1] = macc[D_DLF]; fxm_v[2] = macc[D_RVD]; fxm_v[3] = macc[D_RVR];
@@ -794,6 +834,9 @@ static void seq_block(void)
             if (!dep) continue;
             v = src_v[k];
             if ((k >= S_SSG(0) && k < S_SSG(0) + NSSG) || (k >= S_QUAD(0) && k < S_QUAD(0) + 4u)) v = (v + 32768) >> 1;
+#ifdef QUORUM_ANDROID
+            if (k >= S_EG(0) && P.eg[k - S_EG(0)].bip) v = (v + 32768) >> 1;
+#endif
             v = cl(v, 0, 32767);
             a += dep > 0 ? v * dep / 63 : (32767 - v) * -dep / 63;
             pins++;
@@ -870,6 +913,138 @@ static void ks_block(void)
     if (ks_low) ks_low--;
     ks_gate_v = ks_left && !ks_low;
 }
+#ifdef QUORUM_ANDROID
+/* ================================================================== (Android) the breakpoint envelopes, a block at a time
+ * Each runs across its grid's 32 columns in its length. TRIG: a gate's rise starts it, it runs to the end. GATE: a rise
+ * starts it; while the gate is high it waits at the sustain point and goes round its loop; let go, it carries on to the
+ * end. CYCLE: round and round (the loop alone, if it has one); a rise starts it again. A point with its gate on fires a
+ * short gate (~5 ms) as the envelope passes it: a source of the gate matrix. */
+enum { EGM_TRIG, EGM_GATE, EGM_CYCLE };
+enum { EGK_NONE, EGK_SUS, EGK_LST, EGK_LEND };
+#define EG_NFREE 21u
+#define EG_NLEN 33u
+static const uint16_t EG_LEN_CS[EG_NFREE] = {10, 20, 30, 50, 75, 100, 150, 200, 300, 400, 600, 800, 1200, 1600, 2400, 3200,
+                                              4800, 6400, 9600, 12800, 18000};   /* centiseconds */
+static const uint8_t EG_LEN_STEPS[EG_NLEN - EG_NFREE] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64};
+static float eg_pos[NEG];                       /* where each is, in grid columns */
+static uint8_t eg_run[NEG], eg_gprev[NEG], eg_pulse[NEG], eg_init[NEG];
+static volatile float eg_pos_v[NEG];            /* for the screen */
+static volatile uint32_t eg_fired_v[NEG];       /* breakpoint gates fired (the screen flashes on a change) */
+static uint32_t eg_half_prev, eg_half_n, eg_half_len = 86u;   /* blocks a master clock half step (as measured) */
+static float eg_shape(float t, uint32_t c)      /* 0 fast start .. 2 straight .. 4 slow start */
+{
+    float k = ((float)(c > 4u ? 4u : c) - 2.0f) * 3.0f;
+    if (k == 0.0f) return t;
+    return (expf(k * t) - 1.0f) / (expf(k) - 1.0f);
+}
+static float eg_value(const egp_t *e, float x)  /* the level (0..16) at column x */
+{
+    uint32_t i, n = e->n ? e->n : 1u;
+    if (x >= (float)e->pt[n - 1u].x) return (float)e->pt[n - 1u].y;
+    for (i = 0; i + 1u < n; i++) {
+        const egpt_t *a = &e->pt[i], *b = &e->pt[i + 1u];
+        if (x >= (float)a->x && x < (float)b->x)
+            return (float)a->y + ((float)b->y - (float)a->y) * eg_shape((x - (float)a->x) / (float)(b->x - a->x), b->crv);
+    }
+    return (float)e->pt[0].y;
+}
+static int eg_mark(const egp_t *e, uint32_t mk)  /* the point with this mark, or -1 */
+{
+    uint32_t i;
+    for (i = 0; i < e->n; i++) if (e->pt[i].mk == mk) return (int)i;
+    return -1;
+}
+static void eg_cross(uint32_t k, const egp_t *e, float a, float b)   /* the gates of points passed, a < x <= b */
+{
+    uint32_t i;
+    for (i = 0; i < e->n; i++) if (e->pt[i].gt && (float)e->pt[i].x > a && (float)e->pt[i].x <= b) { eg_pulse[k] = 7; eg_fired_v[k]++; }
+}
+static float eg_seconds(uint32_t k, const egp_t *e)
+{
+    float s = e->len < EG_NFREE ? (float)EG_LEN_CS[e->len] / 100.0f
+                                : (float)EG_LEN_STEPS[(e->len - EG_NFREE) % (EG_NLEN - EG_NFREE)] * 2.0f * (float)eg_half_len / 1378.125f;
+    s *= exp2f(-(float)egmod_v[k] / 32.0f);     /* (the matrix: a full source at 63, four octaves either way) */
+    return s < 0.01f ? 0.01f : s;
+}
+static void eg_block(void)
+{
+    uint32_t k;
+    if (half_n != eg_half_prev) {               /* the master clock's pace, for lengths in steps */
+        if (eg_half_n > 2u && eg_half_n < 20000u) eg_half_len = eg_half_n;
+        eg_half_n = 0; eg_half_prev = half_n;
+    } else eg_half_n++;
+    for (k = 0; k < NEG; k++) {
+        const egp_t *e = &P.eg[k];
+        uint32_t g = gdst_v >> (GD_EG1 + k) & 1u, rise = g && !eg_gprev[k], held = g && e->mode == EGM_GATE;
+        float last = (float)e->pt[(e->n ? e->n : 1u) - 1u].x, a = eg_pos[k], np;
+        int ls = eg_mark(e, EGK_LST), le = eg_mark(e, EGK_LEND), sp = eg_mark(e, EGK_SUS);
+        eg_gprev[k] = (uint8_t)g;
+        if (!eg_init[k]) { eg_init[k] = 1; if (e->mode != EGM_CYCLE) eg_pos[k] = a = last; }   /* (at rest: its end) */
+        if (eg_pulse[k]) eg_pulse[k]--;
+        if (rise || (e->mode == EGM_CYCLE && !eg_run[k])) { eg_pos[k] = a = 0.0f; eg_run[k] = 1; eg_cross(k, e, -1.0f, 0.0f); }
+        if (eg_run[k] && last > 0.0f) {
+            np = a + 32.0f / (eg_seconds(k, e) * 1378.125f);
+            if (held && sp >= 0 && a <= (float)e->pt[sp].x && np >= (float)e->pt[sp].x) {   /* the sustain: wait */
+                eg_cross(k, e, a, (float)e->pt[sp].x);
+                np = (float)e->pt[sp].x;
+            } else if (ls >= 0 && le >= 0 && e->pt[ls].x < e->pt[le].x && (held || e->mode == EGM_CYCLE)
+                       && a < (float)e->pt[le].x && np >= (float)e->pt[le].x) {   /* the loop: round again */
+                float lx = (float)e->pt[ls].x, ex = (float)e->pt[le].x;
+                eg_cross(k, e, a, ex);
+                np = lx + (np - ex); if (np > ex) np = ex;
+                eg_cross(k, e, lx - 0.001f, np);
+            } else if (np >= last) {                /* the end */
+                eg_cross(k, e, a, last);
+                if (e->mode == EGM_CYCLE) { np -= last; if (np > last) np = 0.0f; eg_cross(k, e, -1.0f, np); }
+                else { np = last; eg_run[k] = 0; }
+            } else eg_cross(k, e, a, np);
+            eg_pos[k] = np;
+        }
+        {
+            float v = eg_value(e, eg_pos[k]) / 16.0f;
+            if (e->bip) v = v * 2.0f - 1.0f;
+            src_v[S_EG(k)] = (int32_t)(v * 32767.0f);
+        }
+        eg_pos_v[k] = eg_pos[k];
+    }
+}
+static int32_t eg_sel[NEG] = {-1, -1, -1, -1};  /* the point chosen on each envelope's page (-1: none) */
+static void eg_defaults(patch_t *p)             /* the four envelopes as INIT has them: something to start from */
+{
+    static const uint8_t D[NEG][9][5] = {        /* x, y, curve, gate, mark; a row of zeros (after the first) ends it */
+        {{0, 0, 2, 0, 0}, {2, 16, 1, 0, 0}, {6, 10, 1, 0, EGK_SUS}, {14, 0, 0, 0, 0}},
+        {{0, 0, 2, 0, 0}, {3, 12, 1, 1, 0}, {6, 4, 3, 0, 0}, {9, 14, 1, 1, EGK_LST}, {12, 6, 3, 0, 0}, {15, 11, 1, 1, 0},
+         {18, 3, 3, 0, EGK_LEND}, {26, 0, 1, 0, 0}},
+        {{0, 2, 2, 0, 0}, {10, 14, 3, 0, 0}, {20, 9, 2, 0, 0}, {32, 2, 4, 0, 0}},
+        {{0, 16, 2, 0, 0}, {4, 8, 0, 1, 0}, {12, 0, 1, 0, 0}}};
+    static const uint8_t M[NEG][2] = {{EGM_GATE, 7}, {EGM_GATE, 9}, {EGM_CYCLE, 15}, {EGM_TRIG, 4}};
+    uint32_t k, i;
+    for (k = 0; k < NEG; k++) {
+        egp_t *e = &p->eg[k];
+        memset(e, 0, sizeof *e);
+        e->mode = M[k][0]; e->len = M[k][1]; e->bip = 0;
+        for (i = 0; i < 9u && (i == 0u || D[k][i][0]); i++) {
+            e->pt[i].x = D[k][i][0]; e->pt[i].y = D[k][i][1]; e->pt[i].crv = D[k][i][2];
+            e->pt[i].gt = D[k][i][3]; e->pt[i].mk = D[k][i][4];
+        }
+        e->n = (uint8_t)i;
+    }
+}
+static void eg_clean(egp_t *e)                  /* a loaded envelope in range: the points rising, one of each mark */
+{
+    uint32_t i, n = e->n < 1u ? 1u : e->n > EG_NPT ? EG_NPT : e->n, seen = 0;
+    e->mode %= 3u; if (e->len >= EG_NLEN) e->len = 7; e->bip &= 1u;
+    e->pt[0].x = 0;
+    for (i = 0; i < n; i++) {
+        egpt_t *q = &e->pt[i];
+        if (i && (q->x <= e->pt[i - 1u].x || q->x > 32u)) { n = i; break; }
+        if (q->y > 16u) q->y = 16; if (q->crv > 4u) q->crv = 2; q->gt &= 1u; if (q->mk > 3u) q->mk = 0;
+        if (q->mk && (seen >> q->mk & 1u)) q->mk = 0;
+        seen |= 1u << q->mk;
+    }
+    e->n = (uint8_t)n;
+}
+#endif
 static void logic_block(void)                   /* once a block (1378 Hz): generators, FGs, SSGs, strikes */
 {
     uint32_t g, k, s, outs = 0, ins = 0, lfos = 0;
@@ -893,11 +1068,17 @@ static void logic_block(void)                   /* once a block (1378 Hz): gener
         for (k = 0; k < 2u; k++) gs |= (uint32_t)(popc(G[k].row) > NC / 2u) << (GS_POP + k);
         gs |= sq_gate_v << GS_SEQ;              /* (the sequencers' step gates, as they were a block ago) */
         gs |= (ks_gate_v & 1u) << GS_KSQ;
+#ifdef QUORUM_ANDROID
+        for (k = 0; k < NEG; k++) gs |= (uint32_t)(eg_pulse[k] != 0) << (GS_EG + k);
+#endif
         for (r = 0; r < NGS; r++) if (gs >> r & 1u) gd |= P.gmat[r];
         for (k = 0; k < 2u; k++) if ((gd >> (GD_GA + k) & 1u) && !(gdst_v >> (GD_GA + k) & 1u)) gstep_req_v[k]++;
         gsrc_v = gs; gdst_v = gd;
     }
     for (k = 0; k < NFG; k++) fg_step(k, gdst_v >> (GD_FG1 + k) & 1u);
+#ifdef QUORUM_ANDROID
+    eg_block();
+#endif
     seq_block();
     ks_block();
     for (k = 0; k < NSSG; k++) {                /* sample on the clock's rise; glide to it at SLEW */
@@ -1268,14 +1449,29 @@ static void src_name(char *s, uint32_t k)       /* a matrix source */
     else if (k < NFG + NSSG + 2u) s_cat(s, k == S_POP(0) ? "POP A" : "POP B");
     else if (k < S_QUAD(0)) { s_cat(s, "GEN"); s_int(s, (int32_t)(k - S_GEN(0)) + 1); }
     else if (k < S_SEQ(0)) { static const char *const QN[4] = {"SIN+", "SIN-", "COS+", "COS-"}; s_cat(s, QN[(k - S_QUAD(0)) & 3u]); }
+#ifdef QUORUM_ANDROID
+    else if (k >= S_EG(0)) { s_cat(s, "EG"); s_int(s, (int32_t)(k - S_EG(0)) + 1); }
+#endif
     else { s_cat(s, "SEQ"); s_int(s, (int32_t)(k - S_SEQ(0)) + 1); }
 }
 static const char *const GS_NAME[NGS] = {"GEN1", "GEN2", "GEN3", "GEN4", "LFO1", "LFO2", "LFO3", "LFO4", "EOC1", "EOC2",
-    "EOC3", "EOC4", "QNT A", "QNT B", "CLK", "CLK/2", "CLK/4", "CLK/8", "CLK16", "POP A", "POP B", "SEQ1", "SEQ2", "SEQ3", "KEYS"};
-static const char *const GD_SHORT[NGD] = {"K1", "K2", "F1", "F2", "F3", "F4", "S1", "S2", "GA", "GB", "Q1", "Q2", "Q3", "R1", "R2", "R3"};
+    "EOC3", "EOC4", "QNT A", "QNT B", "CLK", "CLK/2", "CLK/4", "CLK/8", "CLK16", "POP A", "POP B", "SEQ1", "SEQ2", "SEQ3", "KEYS"
+#ifdef QUORUM_ANDROID
+    , "EG1", "EG2", "EG3", "EG4"
+#endif
+    };
+static const char *const GD_SHORT[NGD] = {"K1", "K2", "F1", "F2", "F3", "F4", "S1", "S2", "GA", "GB", "Q1", "Q2", "Q3", "R1", "R2", "R3"
+#ifdef QUORUM_ANDROID
+    , "E1", "E2", "E3", "E4"
+#endif
+    };
 static const char *const GD_NAME[NGD] = {"STRIKE 1", "STRIKE 2", "FG1 TRIGGER", "FG2 TRIGGER", "FG3 TRIGGER", "FG4 TRIGGER",
     "SSG 1 CLOCK", "SSG 2 CLOCK", "GRID A STEP", "GRID B STEP", "SEQ 1 ADVANCE", "SEQ 2 ADVANCE", "SEQ 3 ADVANCE",
-    "SEQ 1 RESET", "SEQ 2 RESET", "SEQ 3 RESET"};
+    "SEQ 1 RESET", "SEQ 2 RESET", "SEQ 3 RESET"
+#ifdef QUORUM_ANDROID
+    , "EG1 TRIGGER", "EG2 TRIGGER", "EG3 TRIGGER", "EG4 TRIGGER"
+#endif
+    };
 static void gins(char *s, uint32_t d)           /* what is pinned into destination d */
 {
     uint32_t r, n = 0;
@@ -1284,14 +1480,22 @@ static void gins(char *s, uint32_t d)           /* what is pinned into destinati
 }
 static const char *const DST_SHORT[NDST] = {"TLT", "STR", "LVL", "SPL", "FLA", "FLB", "PNA", "PNB", "PTA", "PTB",
     "1PT", "1VL", "1SH", "1LV", "2PT", "2VL", "2SH", "2LV", "RLA", "RLB", "SPA", "SPB", "F1R", "F2R", "F3R", "F4R", "QRT", "SQ1", "SQ2", "SQ3",
-    "PHL", "PHR", "DLT", "DLF", "RVD", "RVR", "MTA", "MTB"};
+    "PHL", "PHR", "DLT", "DLF", "RVD", "RVR", "MTA", "MTB"
+#ifdef QUORUM_ANDROID
+    , "E1L", "E2L", "E3L", "E4L"
+#endif
+    };
 static const char *const DST_NAME[NDST] = {"TILT", "STRETCH", "OUT LEVEL", "SPLIT POINT", "FILTER A", "FILTER B",
     "PAN A", "PAN B", "PITCH A", "PITCH B", "STRIKE 1 PARTIAL", "STRIKE 1 VELOCITY", "STRIKE 1 SHAPE", "STRIKE 1 LEVEL",
     "STRIKE 2 PARTIAL", "STRIKE 2 VELOCITY", "STRIKE 2 SHAPE", "STRIKE 2 LEVEL", "GRID A RULE", "GRID B RULE",
     "GRID A SPEED", "GRID B SPEED", "FG1 RATE", "FG2 RATE", "FG3 RATE", "FG4 RATE", "QUAD RATE",
     "SEQ 1 ADDRESS", "SEQ 2 ADDRESS", "SEQ 3 ADDRESS",
     "PHASER LEFT", "PHASER RIGHT", "DELAY TIME", "DELAY FEEDBACK", "REVERB DECAY", "REVERB RETURN",
-    "GRID A MUTATION", "GRID B MUTATION"};
+    "GRID A MUTATION", "GRID B MUTATION"
+#ifdef QUORUM_ANDROID
+    , "EG1 LENGTH", "EG2 LENGTH", "EG3 LENGTH", "EG4 LENGTH"
+#endif
+    };
 static uint32_t isqrt32(uint32_t v) { uint32_t r = 0, b = 1u << 30; while (b > v) b >>= 2; while (b) { if (v >= r + b) { v -= r + b; r = (r >> 1) + b; } else r >>= 1; b >>= 2; } return r; }
 
 /* ================================================================== the screen: green phosphor */
@@ -1485,7 +1689,12 @@ static uint32_t batt_bars(void)
 enum { PG_INDEX, PG_VOICE, PG_GRID, PG_STRIKE, PG_SPLIT, PG_LOGIC, PG_SEQ, PG_FG, PG_MOD, PG_GMAT, PG_FX, PG_GLOBAL, PG_PATCH, NPG };
 static const char *const PG_NUM[NPG] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "X", "F", "G", "D"};
 static const char *const PG_NAME[NPG] = {"INDEX", "VOICE", "GRIDS", "STRIKE", "SPLIT + FILTERS", "LOGIC", "SEQUENCERS",
-                                         "FUNCTION GEN", "MOD MATRIX", "GATE MATRIX", "FX", "GLOBAL", "DISK"};
+#ifdef QUORUM_ANDROID
+                                         "MODULATORS",   /* (Android: the FGs, SSGs, quad LFO and the envelopes) */
+#else
+                                         "FUNCTION GEN",
+#endif
+                                         "MOD MATRIX", "GATE MATRIX", "FX", "GLOBAL", "DISK"};
 static const uint8_t PG_READY[NPG] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 static uint32_t page = PG_INDEX, sub, bank;     /* sub: OCT's choice (grid, strike, split part); bank: SEL's */
 static uint32_t cpu_avg, cpu_peak, cpu_max;     /* 1/10 per cent of the 5.8 ms */
@@ -1499,13 +1708,21 @@ static uint32_t page_subs(uint32_t pg)
     if (pg == PG_SEQ) return NSEQ + 1u;        /* SEQ 1-3, KEYS (the keyboard sequencer) */
     if (pg == PG_SPLIT || pg == PG_GLOBAL) return 3u;
     if (pg == PG_FX) return 4u;                 /* PHASER, DELAY, REVERB, ROUTING */
+#ifdef QUORUM_ANDROID
+    if (pg == PG_FG) return NFG + NSSG + 1u + NEG;   /* FG 1-4, SSG 1-2, the quad LFO, (Android) EG 1-4 */
+#else
     if (pg == PG_FG) return NFG + NSSG + 1u;    /* FG 1-4, SSG 1-2, the quad LFO */
+#endif
     return 1u;
 }
 static uint32_t mrow, mcol, mtop, mleft;        /* (mcol, mleft: places in DORD, the order the page shows) */
 static const uint8_t DORD[NDST] = {D_TILT, D_STR, D_LVL, D_SPLIT, D_FILTA, D_FILTB, D_PANA, D_PANB, D_PITA, D_PITB,
     D_K1PART, D_K1VEL, D_K1SHP, D_K1LVL, D_K2PART, D_K2VEL, D_K2SHP, D_K2LVL, D_RULA, D_RULB, D_MUTA, D_MUTB, D_SPDA, D_SPDB,
-    D_FG1, D_FG2, D_FG3, D_FG4, D_QRATE, D_SQ1, D_SQ2, D_SQ3, D_PHL, D_PHR, D_DLT, D_DLF, D_RVD, D_RVR};   /* (the grids'
+    D_FG1, D_FG2, D_FG3, D_FG4,
+#ifdef QUORUM_ANDROID
+    D_EG1, D_EG2, D_EG3, D_EG4,                 /* (Android: the envelopes' lengths, beside the FGs' rates) */
+#endif
+    D_QRATE, D_SQ1, D_SQ2, D_SQ3, D_PHL, D_PHR, D_DLT, D_DLF, D_RVD, D_RVR};   /* (the grids'
     mutation beside their rules; saved patches keep the enum's order) */
 #define MD(c) DORD[(c) < NDST ? (c) : 0u]
 static uint8_t scur[NSEQ];                      /* each sequencer's step under the cursor (page 7) */        /* the matrix's cursor (source, destination) and its window */
@@ -1525,7 +1742,7 @@ enum { F_INT, F_SLEW, F_TILT, F_STR, F_PCT, F_GMODE, F_GRATE, F_MUT, F_ONOFF, F_
        F_DEC, F_FALL, F_SER, F_LSRC, F_OP, F_ROUTE, F_SRULE, F_POINT, F_WIDTH, F_SOFT, F_PMODE, F_FREQ, F_RES, F_BW,
        F_PAN, F_SEMI, F_CENT, F_CLK, F_TEMPO, F_PHOS, F_BRIGHT, F_BITS, F_TUN, F_SCL, F_SROOT, F_COUNT, F_SPACE, F_TPAT,
        F_GOP, F_GMODE2, F_RATE, F_DUTY, F_FGT, F_CURVE, F_FMODE, F_SSGIN, F_DEPTH, F_QRATE, F_STEPN, F_SDIR, F_SADDR,
-       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_NONE };   /* (F_SCAN, F_DARK:
+       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NONE };   /* (F_SCAN, F_DARK:
        Android) */
 typedef struct { const char *name; uint8_t *p; int16_t lo, hi; uint8_t fmt, step; } kn_t;
 static kn_t KN[4];
@@ -1574,6 +1791,21 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
         kn_set(2, "RATE", &q->rate, 0, 127, F_RATE, q->mode ? 12 : 2); kn_set(3, q->mode ? "LFO" : "DUTY", &q->duty, 1, 126, q->mode ? F_NONE : F_DUTY, 4);
         if (q->mode) kn_set(3, "", &dummy, 0, 0, F_NONE, 1);
     } else if (pg == PG_FG) {
+#ifdef QUORUM_ANDROID
+        if (sb > NFG + NSSG) {                  /* an envelope: its settings, or the chosen point's */
+            egp_t *e = &P.eg[(sb - NFG - NSSG - 1u) % NEG];
+            int32_t i = eg_sel[(sb - NFG - NSSG - 1u) % NEG];
+            if (i >= 0 && i < (int32_t)e->n) {
+                egpt_t *q = &e->pt[i];
+                kn_set(0, "LEVEL", &q->y, 0, 16, F_INT, 1);
+                if (i) kn_set(1, "CURVE", &q->crv, 0, 4, F_EGCRV, 1);
+                kn_set(2, "GATE", &q->gt, 0, 1, F_ONOFF, 1); kn_set(3, "MARK", &q->mk, 0, 3, F_EGMK, 1);
+            } else {
+                kn_set(0, "MODE", &e->mode, 0, 2, F_EGMODE, 1); kn_set(1, "LENGTH", &e->len, 0, EG_NLEN - 1, F_EGLEN, 1);
+                kn_set(2, "OUTPUT", &e->bip, 0, 1, F_EGPOL, 1);
+            }
+        } else
+#endif
         if (sb < NFG) { fgp_t *f = &P.fg[sb];
             kn_set(0, "RISE", &f->rise, 0, 127, F_FGT, 2); kn_set(1, "FALL", &f->fall, 0, 127, F_FGT, 2);
             kn_set(2, "CURVE", &f->curve, 0, 2, F_CURVE, 1); kn_set(3, "MODE", &f->mode, 0, 2, F_FMODE, 1); }
@@ -1718,6 +1950,12 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_SCL: s_cat(s, SCL_NAME[TUN_SCL0[P.tun % NTUN] + (uint32_t)v]); break;
 #ifdef QUORUM_ANDROID
     case F_SCAN: s_int(s, ASET_LINES[v % 5]); break;
+    case F_EGMODE: { static const char *const M[3] = {"TRIG", "GATE", "CYCLE"}; s_cat(s, M[v % 3]); } break;
+    case F_EGLEN: if (v < (int32_t)EG_NFREE) { uint32_t cs = EG_LEN_CS[v]; if (cs < 1000u) s_dec(s, cs, 100u, 2u); else s_int(s, (int32_t)(cs / 100u)); s_cat(s, "S"); }
+                  else { s_int(s, EG_LEN_STEPS[(v - (int32_t)EG_NFREE) % (int32_t)(EG_NLEN - EG_NFREE)]); s_cat(s, " STEP"); } break;
+    case F_EGPOL: s_cat(s, v ? "BIP" : "UP"); break;
+    case F_EGCRV: { static const char *const C[5] = {"FAST2", "FAST1", "LIN", "SLOW1", "SLOW2"}; s_cat(s, C[v % 5]); } break;
+    case F_EGMK: { static const char *const K[4] = {"----", "SUS", "L.ST", "L.END"}; s_cat(s, K[v & 3]); } break;
     case F_DARK: s_int(s, v * 7); s_cat(s, "%"); break;
 #endif
     case F_SROOT: { static const char *const NN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}; s_cat(s, NN[v % 12]); } break;
@@ -1739,6 +1977,9 @@ static void header_title(char *s)               /* the header's text before the 
     else if (page == PG_SEQ) { s_cat(s, "SEQ "); s_int(s, (int32_t)sub + 1); }
     else if (page == PG_FG) { if (sub < NFG) { s_cat(s, "FUNC GEN "); s_int(s, (int32_t)sub + 1); }
                               else if (sub < NFG + NSSG) { s_cat(s, "SSG "); s_int(s, (int32_t)(sub - NFG) + 1); }
+#ifdef QUORUM_ANDROID
+                              else if (sub > NFG + NSSG) { s_cat(s, "ENVELOPE "); s_int(s, (int32_t)(sub - NFG - NSSG)); }
+#endif
                               else s_cat(s, "QUAD LFO"); }
     else if (page == PG_SPLIT) s_cat(s, sub == 0u ? "SPLIT" : sub == 1u ? "PATH A" : "PATH B");
     else if (page == PG_GLOBAL) s_cat(s, sub == 0u ? "GLOBAL: TUNING" : sub == 1u ? "GLOBAL: VDU" : "GLOBAL: ENGINE");
@@ -1996,6 +2237,26 @@ static void draw_logic(void)                    /* a generator: its input, its L
     cv_out(BODY_Y);
 }
 
+#ifdef QUORUM_ANDROID
+/* (Android) the Modulators page: a strip of tabs across its top, one for each of its parts */
+#define NMODT (NFG + NSSG + 1u + NEG)
+static void mod_tabs(void)
+{
+    static const char *const TB[NMODT] = {"F1", "F2", "F3", "F4", "S1", "S2", "Q", "E1", "E2", "E3", "E4"};
+    int32_t x = 1;
+    uint32_t i;
+    for (i = 0; i < NMODT; i++) {
+        int32_t w = text_w(&FONT_S, TB[i]) + 4;
+        if (i == sub) {                         /* the part shown: boxed, bright */
+            cv_rect(x, 0, w, 1, PH_HI); cv_rect(x, 14, w, 1, PH_HI); cv_rect(x, 0, 1, 15, PH_HI); cv_rect(x + w - 1, 0, 1, 15, PH_HI);
+            cv_text(x + 2, -1, &FONT_S, TB[i], PH_HI);
+        } else cv_text(x + 2, -1, &FONT_S, TB[i], i > NFG + NSSG ? PH_MID : PH_LO);
+        tgt_add(x, BODY_Y, w + 1, 18, T_TAB, i);
+        x += w + 1;
+    }
+    cv_rect(0, 15, 240, 1, PH_SEL);
+}
+#endif
 static void draw_quad(void)                     /* the quadrature LFO: a dot round a circle, four bipolar bars */
 {
     uint32_t i, k, d, n;
@@ -2003,6 +2264,9 @@ static void draw_quad(void)                     /* the quadrature LFO: a dot rou
     char s[40];
     static const char *const QN[4] = {"SIN+", "SIN-", "COS+", "COS-"};
     cv_begin(240, BODY_H, PH_BG);
+#ifdef QUORUM_ANDROID
+    mod_tabs();
+#endif
     for (i = 0; i < 96u; i++)
         cv_pset(cx + ((sine(i * 0x02AAAAABu + 0x40000000u) * r) >> 15), cy - ((sine(i * 0x02AAAAABu) * r) >> 15), PH_LO);
     cv_rect(cx - r, cy, 2 * r + 1, 1, PH_SEL); cv_rect(cx, cy - r, 1, 2 * r + 1, PH_SEL);
@@ -2022,6 +2286,139 @@ static void draw_quad(void)                     /* the quadrature LFO: a dot rou
     footer("OCT FG/SSG/QUAD");
     cv_out(BODY_Y);
 }
+#ifdef QUORUM_ANDROID
+/* (Android) an FG drawn as its shape, to be dragged: the rise up to the peak, (GATE: a hold), the fall down to the end;
+ * the widths are the RISE and FALL settings (8 + 80 px over 0..127), the curve as CURVE bends it; a dot where it is
+ * now; under it, the last few seconds of its output. An SSG: its trace, as on the FM-1. */
+#define FGX0 14
+#define FGTOP 34
+#define FGBASE 116
+static int32_t fg_w(uint32_t v) { return 8 + (int32_t)v * 80 / 127; }
+static int32_t fg_hold(uint32_t k) { return P.fg[k].mode == FM_GATE ? 16 : 0; }
+static void fg_line(int32_t x, int32_t y0, int32_t y1, uint16_t c)   /* a column from y0 to y1 (joined curves) */
+{
+    if (y1 < y0) { int32_t t = y0; y0 = y1; y1 = t; }
+    cv_rect(x, y0, 1, y1 - y0 + 1, c);
+}
+static void draw_fg(void)
+{
+    uint32_t k = sub, i;
+    char s[40];
+    cv_begin(240, BODY_H, PH_BG);
+    mod_tabs();
+    if (k < NFG) {
+        const fgp_t *f = &P.fg[k];
+        int32_t rw = fg_w(f->rise), hw = fg_hold(k), fw = fg_w(f->fall), px = FGX0 + rw, ex = px + hw + fw, py = FGBASE, x;
+        int32_t h = FGBASE - FGTOP;
+        const fg_st_t *st = &fgs[k];
+        s[0] = 0; s_cat(s, FM_NAME[f->mode % 3u]); s_cat(s, " < "); gins(s, GD_FG1 + k);
+        cv_text(4, 17, &FONT_S, s, PH_MID);
+        tgt_add(FGX0 - 6, BODY_Y + FGTOP - 6, 226, h + 12, T_FGSHAPE, k);
+        cv_rect(FGX0, FGBASE, 214, 1, PH_LO);
+        for (x = 0; x <= rw; x++) {             /* the rise */
+            int32_t y = FGBASE - fg_shape(x * (FG_TOP / rw), f->curve) * h / 32767;
+            fg_line(FGX0 + x, x ? py : y, y, PH_MID); py = y;
+        }
+        for (x = 0; x < hw; x += 3) cv_rect(px + x, FGTOP, 2, 1, PH_MID);   /* the hold (GATE) */
+        py = FGTOP;
+        for (x = 0; x <= fw; x++) {             /* the fall */
+            int32_t y = FGBASE - fg_shape((fw - x) * (FG_TOP / fw), f->curve) * h / 32767;
+            fg_line(px + hw + x, py, y, PH_MID); py = y;
+        }
+        cv_rect(px - 3, FGTOP - 3, 7, 7, PH_HI); cv_rect(px - 1, FGTOP - 1, 3, 3, PH_BG);   /* the handles */
+        cv_rect(ex - 3, FGBASE - 3, 7, 7, PH_HI); cv_rect(ex - 1, FGBASE - 1, 3, 3, PH_BG);
+        tgt_add(px - 15, BODY_Y + FGTOP - 14, 30, 30, T_FGPEAK, k);
+        tgt_add(ex - 15, BODY_Y + FGBASE - 16, 30, 30, T_FGEND, k);
+        {                                       /* where it is now */
+            int32_t lv = fg_shape(st->x, f->curve), dx;
+            if (st->stage == FG_RISE) dx = FGX0 + (int32_t)((int64_t)rw * st->x / FG_TOP);
+            else if (st->stage == FG_HOLD) dx = px + hw / 2;
+            else if (st->stage == FG_FALL) dx = px + hw + (int32_t)((int64_t)fw * (FG_TOP - st->x) / FG_TOP);
+            else dx = ex;
+            cv_rect(dx - 2, FGBASE - lv * h / 32767 - 2, 5, 5, PH_HI);
+        }
+        for (i = 0; i < HISTN; i++) {           /* its output lately, oldest on the left */
+            int32_t v = fhist[k][(hhead_s + i) % HISTN];
+            cv_rect(20 + (int32_t)i, 155 - v * 22 / 16384, 1, 1, i + 1u == HISTN ? PH_HI : PH_LO);
+        }
+        knob_row(0);
+        footer("DRAG PEAK/END  TAP: CURVE");
+    } else {
+        s[0] = 0; s_cat(s, "CLK < "); gins(s, GD_SH1 + (k - NFG));
+        cv_text(4, 17, &FONT_S, s, PH_MID);
+        cv_rect(20, 36, 1, 100, PH_LO);
+        for (i = 0; i < 200u; i += 4u) cv_pset(20 + (int32_t)i, 86, PH_LO);
+        for (i = 0; i < HISTN; i++) {
+            int32_t v = fhist[k][(hhead_s + i) % HISTN];
+            cv_rect(20 + (int32_t)i, 86 - v * 48 / 16384, 1, 2, i + 1u == HISTN ? PH_HI : PH_MID);
+        }
+        {
+            uint32_t d, n = 0;
+            s[0] = 0; s_cat(s, "TO:");
+            for (d = 0; d < NDST && n < 5u; d++) if (P.dep[k][d]) { s_cat(s, " "); s_cat(s, DST_SHORT[d]); n++; }
+            if (!n) s_cat(s, " -");
+            cv_text(4, 140, &FONT_S, s, PH_LO);
+        }
+        knob_row(0);
+        footer("GATES: GATE MATRIX");
+    }
+    cv_out(BODY_Y);
+}
+
+/* (Android) an envelope: its grid (32 columns of its length, 16 levels), the curve through its points, the loop shaded,
+ * the sustain marked above its point, the gates as ticks under the grid; where it is now; a lamp for its gates */
+#define EGX0 8
+#define EGY0 34
+#define EGCW 7
+#define EGCH 7
+#define EGX(x) (EGX0 + (int32_t)(x) * EGCW)
+#define EGY(y) (EGY0 + (16 - (int32_t)(y)) * EGCH)
+static void draw_eg(uint32_t k)
+{
+    static uint32_t fired_seen[NEG], t_fired[NEG];
+    const egp_t *e = &P.eg[k];
+    uint32_t i, j, n = e->n ? e->n : 1u;
+    int32_t ls = eg_mark(e, EGK_LST), le = eg_mark(e, EGK_LEND), sel = eg_sel[k], px, py = 0;
+    float pos = eg_pos_v[k];
+    char s[40];
+    static const char *const M[3] = {"TRIG", "GATE", "CYCLE"};
+    if (sel >= (int32_t)n) sel = eg_sel[k] = -1;
+    cv_begin(240, BODY_H, PH_BG);
+    mod_tabs();
+    s[0] = 0; s_cat(s, M[e->mode % 3u]); s_cat(s, " < "); gins(s, GD_EG1 + k);
+    cv_text(4, 17, &FONT_S, s, PH_MID);
+    if (eg_fired_v[k] != fired_seen[k]) { fired_seen[k] = eg_fired_v[k]; t_fired[k] = fm1_ms; }
+    cv_text(200, 17, &FONT_S, "GT", fm1_ms - t_fired[k] < 90u ? PH_HI : PH_LO);
+    if (fm1_ms - t_fired[k] < 90u) cv_rect(222, 21, 8, 8, PH_HI); else { cv_rect(222, 21, 8, 1, PH_LO); cv_rect(222, 28, 8, 1, PH_LO); cv_rect(222, 21, 1, 8, PH_LO); cv_rect(229, 21, 1, 8, PH_LO); }
+    if (ls >= 0 && le >= 0 && e->pt[ls].x < e->pt[le].x) {   /* the loop, shaded, its ends dotted */
+        cv_rect(EGX(e->pt[ls].x), EGY0, EGX(e->pt[le].x) - EGX(e->pt[ls].x), 16 * EGCH, PH_SEL);
+        for (j = 0; j < 16u * EGCH; j += 3u) { cv_pset(EGX(e->pt[ls].x), EGY0 + (int32_t)j, PH_LO); cv_pset(EGX(e->pt[le].x), EGY0 + (int32_t)j, PH_LO); }
+    }
+    for (i = 0; i <= 32u; i++) for (j = 0; j <= 16u; j++)   /* the grid: a dot each crossing, brighter every 8 x 4 */
+        cv_pset(EGX(i), EGY(j), i % 8u == 0u && j % 4u == 0u ? PH_LO : PH_SEL);
+    for (px = EGX(0); px <= EGX(e->pt[n - 1u].x); px++) {   /* the curve */
+        int32_t y = EGY0 + (int32_t)((16.0f - eg_value(e, (float)(px - EGX0) / (float)EGCW)) * (float)EGCH + 0.5f);
+        fg_line(px, px == EGX(0) ? y : py, y, PH_MID); py = y;
+    }
+    for (i = 0; i < n; i++) {                   /* the points, their gates, the sustain */
+        const egpt_t *q = &e->pt[i];
+        int32_t x = EGX(q->x), y = EGY(q->y);
+        cv_rect(x - 1, y - 1, 3, 3, PH_HI);
+        if (q->gt) cv_rect(x, EGY0 + 16 * EGCH + 3, 1, 5, PH_MID);
+        if (q->mk == EGK_SUS) { cv_rect(x - 3, y - 7, 7, 1, PH_HI); cv_rect(x - 3, y - 5, 7, 1, PH_HI); }
+        if ((int32_t)i == sel) { cv_rect(x - 4, y - 4, 9, 1, PH_HI); cv_rect(x - 4, y + 4, 9, 1, PH_HI); cv_rect(x - 4, y - 4, 1, 9, PH_HI); cv_rect(x + 4, y - 4, 1, 9, PH_HI); }
+    }
+    if (pos > 0.0f) {                           /* where it is now */
+        int32_t x = EGX0 + (int32_t)(pos * (float)EGCW), y = EGY0 + (int32_t)((16.0f - eg_value(e, pos)) * (float)EGCH);
+        for (j = 0; j < 16u * EGCH; j += 4u) cv_pset(x, EGY0 + (int32_t)j, PH_LO);
+        cv_rect(x - 2, y - 2, 5, 5, PH_HI);
+    }
+    tgt_add(EGX0 - 7, BODY_Y + EGY0 - 8, 32 * EGCW + 14, 16 * EGCH + 16, T_EGGRID, k);
+    knob_row(0);
+    footer(sel >= 0 ? "TAP AGAIN: DONE  2X: DELETE" : "DRAW OR TAP THE GRID");
+    cv_out(BODY_Y);
+}
+#else
 static void draw_fg(void)                       /* a function generator or an SSG: its trace, its settings */
 {
     uint32_t k = sub, i;
@@ -2050,6 +2447,7 @@ static void draw_fg(void)                       /* a function generator or an SS
     footer("OCT FG/SSG  GATES: GATE MATRIX");
     cv_out(BODY_Y);
 }
+#endif
 
 /* the keyboard sequencer: a piano roll as the Fairlight's page R, four steps to a page (up to four pages: 16 steps),
  * an octave and a bit down the side (the black keys' rows shaded); the notes as bars, the one playing bright; under the
@@ -2709,7 +3107,10 @@ static void patch_clean(void)                   /* a loaded patch's values in ra
         if (P.ks.note[k] && (P.ks.note[k] < 12u || P.ks.note[k] > 96u)) P.ks.note[k] = 0;
         P.ks.len[k] = P.ks.note[k] ? (uint8_t)cl(P.ks.len[k], 1, KS_N) : 0u;
     }
-    for (k = 0; k < NGS; k++) P.gmat[k] &= (uint16_t)((1u << NGD) - 1u);
+    for (k = 0; k < NGS; k++) P.gmat[k] &= (1u << NGD) - 1u;
+#ifdef QUORUM_ANDROID
+    for (k = 0; k < NEG; k++) eg_clean(&P.eg[k]);
+#endif
 }
 static void init_patch(void)                    /* INIT: the grids, two plain paths, nothing pinned, dry */
 {
@@ -2880,9 +3281,20 @@ typedef struct {
     uint16_t gm[32];
     uint32_t rows[2];                           /* the grids, as they stood */
     char name[8];
+#ifdef QUORUM_ANDROID
+    uint16_t gm_hi[32];                         /* (Android, ver 2) the gate matrix's destinations 16..31 */
+    egp_t eg[NEG];                              /* (Android, ver 2) the envelopes */
+#endif
 } pdata_t;
-typedef union { pdata_t d; uint8_t raw[2040]; } pslot_t;
-typedef char pdata_fits_its_slot[sizeof(pdata_t) <= 2040u ? 1 : -1];   /* (the build fails if it ever grows past) */
+#ifdef QUORUM_ANDROID
+#define PSLOT 3328u                             /* (Android) a patch's record: the FM-1's 2040, then the envelopes. A
+                                                   blob of the FM-1's size (two 2040s) is read into the start of each
+                                                   (android_platform.c: blob_load), and loads as a ver 1 patch */
+#else
+#define PSLOT 2040u
+#endif
+typedef union { pdata_t d; uint8_t raw[PSLOT]; } pslot_t;
+typedef char pdata_fits_its_slot[sizeof(pdata_t) <= PSLOT ? 1 : -1];   /* (the build fails if it ever grows past) */
 typedef char psettings_fit[__builtin_offsetof(patch_t, dep) <= 640u ? 1 : -1];
 typedef char pmatrices_fit[NSRC <= 24u && NDST <= 48u && NGS <= 32u ? 1 : -1];
 static pslot_t pbank[2];
@@ -2965,6 +3377,11 @@ static int patch_save(uint32_t slot)            /* 1..16 */
     q = &pbank[j].d;
     for (k = 0; k < sizeof pbank[j].raw; k++) pbank[j].raw[k] = 0;
     q->tag = PATCH_TAG; q->ver = 1; q->used = 1;
+#ifdef QUORUM_ANDROID
+    q->ver = 2;
+    for (k = 0; k < NGS; k++) q->gm_hi[k] = (uint16_t)(P.gmat[k] >> 16);
+    for (k = 0; k < NEG; k++) q->eg[k] = P.eg[k];
+#endif
     q->nscal = (uint16_t)PSCAL; q->nsrc = NSRC; q->ndst = NDST; q->ngs = NGS;
     for (k = 0; k < PSCAL; k++) q->scal[k] = ((const uint8_t *)&P)[k];
     for (k = 0; k < NSRC; k++) for (d = 0; d < NDST; d++) q->dep[k][d] = P.dep[k][d];
@@ -2996,6 +3413,12 @@ static int patch_load(uint32_t slot)            /* 0 = INIT, P_RANDOM = roll the
     for (k = 0; k < NSRC && k < q->nsrc && k < 24u; k++)
         for (d = 0; d < NDST && d < q->ndst && d < 48u; d++) P.dep[k][d] = (int8_t)cl(q->dep[k][d], -63, 63);
     for (k = 0; k < NGS && k < q->ngs && k < 32u; k++) P.gmat[k] = q->gm[k];
+#ifdef QUORUM_ANDROID
+    if (q->ver >= 2u) {                         /* (an older patch: INIT's envelopes, nothing pinned past 16) */
+        for (k = 0; k < NGS && k < q->ngs && k < 32u; k++) P.gmat[k] |= (uint32_t)q->gm_hi[k] << 16;
+        for (k = 0; k < NEG; k++) P.eg[k] = q->eg[k];
+    }
+#endif
     patch_clean();
     for (k = 0; k < 2u; k++) if (q->rows[k]) { G[k].row = q->rows[k]; G[k].nseen = 0; }
     name_clean(cur_name, name_blank(q->name) ? pname[slot] : q->name);
@@ -3086,6 +3509,14 @@ static void after_change(uint32_t pg, uint32_t sb, uint32_t knob, uint32_t bk)
     if (pg == PG_GRID && knob == 3u && bk == 1u) { t_halfb = t_half; half_b = half_n; }   /* (lockstep on or off: B in phase with A) */
     if (pg == PG_GLOBAL && sb == 0u && knob == 0u) P.scl = 0;    /* (a new tuning: its first scale) */
 #ifdef QUORUM_ANDROID
+    if (pg == PG_FG && sb > NFG + NSSG && knob == 3u) {   /* an envelope's mark: one point each */
+        uint32_t k = (sb - NFG - NSSG - 1u) % NEG, i;
+        int32_t c = eg_sel[k];
+        if (c >= 0 && P.eg[k].pt[c].mk)
+            for (i = 0; i < P.eg[k].n; i++) if ((int32_t)i != c && P.eg[k].pt[i].mk == P.eg[k].pt[c].mk) P.eg[k].pt[i].mk = 0;
+    }
+#endif
+#ifdef QUORUM_ANDROID
     if (pg == PG_GLOBAL && sb == 1u && knob >= 2u) { aset_dirty = 1; t_aset = fm1_ms; }   /* (the phone's own: its file) */
 #endif
 }
@@ -3114,6 +3545,9 @@ static void app_main(void)
 #endif
     P.engver = gset.eng == 1u ? 1u : 2u;        /* (the engine and the clock: the machine's, kept with the VDU) */
     P.clk_midi = gset.pad & 1u;
+#ifdef QUORUM_ANDROID
+    eg_defaults(&P);                            /* (the envelopes: INIT's, and the power-on drone's) */
+#endif
     P0 = P;                                     /* (the built-in patch: INIT's base) */
     patches_scan();
     gset.boots++;                               /* every power-on a new drone: a boot count in flash, the timing */
@@ -3185,7 +3619,7 @@ static void app_main(void)
             if (page == PG_GRID) { grid_seed(sub & 1u); dirty_partials = 1; }
             if (page == PG_GLOBAL && sub == 2u) cpu_max = 0;
             if (page == PG_GLOBAL && sub == 0u) { P.qon[qsel & 1u] ^= 1u; dirty_partials = 1; }
-            if (page == PG_GMAT) P.gmat[grow] ^= (uint16_t)(1u << gcol);   /* a pin in / out */
+            if (page == PG_GMAT) P.gmat[grow] ^= 1u << gcol;   /* a pin in / out */
             if (page == PG_SEQ && sub < NSEQ) { uint32_t n = sub % NSEQ; P.seq[n].gate[scur[n] & 7u] ^= 1u; }   /* the step's gate */
             if (page == PG_SEQ && sub >= NSEQ) {    /* the piano roll: PLAY picks up a note, or a new bar; PLAY puts it
                                                        down; SEL held + PLAY clears the lot */
@@ -3396,7 +3830,11 @@ static void app_main(void)
             case PG_GMAT: draw_gmat(); break;
             case PG_SEQ: if (sub >= NSEQ) draw_keys(); else draw_seq(); break;
             case PG_LOGIC: draw_logic(); break;
+#ifdef QUORUM_ANDROID
+            case PG_FG: if (sub > NFG + NSSG) draw_eg((sub - NFG - NSSG - 1u) % NEG); else if (sub == NFG + NSSG) draw_quad(); else draw_fg(); break;
+#else
             case PG_FG: if (sub >= NFG + NSSG) draw_quad(); else draw_fg(); break;
+#endif
             case PG_MOD: draw_mod(); break;
             case PG_SPLIT: draw_split(); break;
             case PG_GLOBAL: if (sub == 0u) draw_tuning(); else if (sub == 1u) draw_vdu(); else draw_engine(); break;

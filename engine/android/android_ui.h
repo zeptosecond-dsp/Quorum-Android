@@ -5,10 +5,12 @@
  * Touch targets: as a page draws itself it says where its touchable things are (a knob's readout, an Index line);
  * a tap goes to whatever is under the finger. The list is rebuilt every time the page is drawn. */
 
-enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT };   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
+enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT, T_TAB, T_FGSHAPE, T_FGPEAK, T_FGEND, T_EGGRID };   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
                                                    page); a Disk file (a = its slot); a crosspoint of the mod or gate
                                                    matrix (a = the source, b = the destination as the page orders
-                                                   them); a phone-only switch (a: 0 the lightpen's cursor) */
+                                                   them); a phone-only switch (a: 0 the lightpen's cursor); a
+                                                   Modulators tab (a = the part); an FG's shape, its peak, its end
+                                                   (a = the FG); an envelope's grid (a = the envelope) */
 typedef struct { int16_t x, y, w, h; uint8_t kind, a, b; } tgt_t;
 #define NTGT 128
 static tgt_t tgt[NTGT];

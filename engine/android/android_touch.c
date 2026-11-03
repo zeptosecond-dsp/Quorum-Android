@@ -16,6 +16,11 @@
  *                  two quick taps take it out.
  *   gate matrix    tap a crosspoint: a pin in or out.
  * A finger that lands on a file or a crosspoint and moves scrolls instead: only a tap that stays put is a tap.
+ *   Modulators     the tabs across the top go straight to a part. An FG: drag its peak sideways for RISE, its end for
+ *                  FALL; tap the shape for the next CURVE. An envelope: drag a stroke across the grid and it snaps to
+ *                  points; tap the grid for a point (or to choose the one there); tap a point to choose it (its
+ *                  level, curve, gate and mark on K1-K4), again to let it go; drag a point to move it; two quick taps
+ *                  take it out.
  *
  * Taps that the panel can do become the panel's own presses (b), so the firmware does exactly what it does for the
  * buttons; values are set as the knobs set them (kn_put, after_change). */
@@ -191,6 +196,149 @@ static void pending_tap(const tgt_t *t)         /* a tap that stayed put, on a f
     }
 }
 
+
+/* ---- the Modulators: an FG's handles, an envelope's grid */
+static struct {
+    int mode;                                   /* 0 none, 1 an FG's peak, 2 its end, 3 an envelope's point, 4 a stroke */
+    uint32_t k, moved;
+    int32_t idx;
+    float x0, y0;
+    uint16_t n;
+    float sx[256], sy[256];                     /* the stroke, in grid columns and levels */
+} TM;
+
+static void fg_drag(float x)
+{
+    fgp_t *f = &P.fg[TM.k];
+    if (TM.mode == 1) {
+        int32_t v = (int32_t)((x - (float)FGX0 - 8.0f) * 127.0f / 80.0f + 0.5f);
+        f->rise = (uint8_t)cl(v, 0, 127);
+        after_change(page, sub, 0u, bank);
+    } else {
+        int32_t v = (int32_t)((x - (float)(FGX0 + fg_w(f->rise) + fg_hold(TM.k)) - 8.0f) * 127.0f / 80.0f + 0.5f);
+        f->fall = (uint8_t)cl(v, 0, 127);
+        after_change(page, sub, 1u, bank);
+    }
+}
+static float eg_gx(float x) { return (x - (float)EGX0) / (float)EGCW; }
+static float eg_gy(float y) { return 16.0f - (y - (float)EGY0 - (float)BODY_Y) / (float)EGCH; }
+static int32_t eg_hit(const egp_t *e, float x, float y)   /* the point nearest the finger, within reach, or -1 */
+{
+    int32_t best = -1;
+    float bd = 9.0f * 9.0f;
+    uint32_t i;
+    for (i = 0; i < e->n; i++) {
+        float dx = x - (float)EGX(e->pt[i].x), dy = y - (float)(EGY(e->pt[i].y) + BODY_Y), d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = (int32_t)i; }
+    }
+    return best;
+}
+static int32_t eg_insert(egp_t *e, uint32_t x, uint32_t y)   /* a point at column x (or the one there), its index */
+{
+    uint32_t i, j;
+    for (i = 0; i < e->n && e->pt[i].x < x; i++) {}
+    if (i < e->n && e->pt[i].x == x) { e->pt[i].y = (uint8_t)y; return (int32_t)i; }
+    if (e->n >= EG_NPT) return -1;
+    for (j = e->n; j > i; j--) e->pt[j] = e->pt[j - 1u];
+    memset(&e->pt[i], 0, sizeof e->pt[i]);
+    e->pt[i].x = (uint8_t)x; e->pt[i].y = (uint8_t)y; e->pt[i].crv = 2;
+    e->n++;
+    return (int32_t)i;
+}
+static void eg_delete(egp_t *e, uint32_t i)
+{
+    uint32_t j;
+    if (i == 0u || i >= e->n) return;           /* (the first point stays: the envelope starts there) */
+    for (j = i; j + 1u < e->n; j++) e->pt[j] = e->pt[j + 1u];
+    e->n--;
+}
+static void eg_stroke(egp_t *e)                 /* a stroke into points: a point wherever its slope changes, column by
+                                                   column; the points it passed over replaced */
+{
+    float col[33];
+    int has[33] = {0};
+    uint32_t i, c, lo = 33, hi = 0, nk = 0;
+    int32_t ys[33];
+    for (i = 1; i < TM.n; i++) {
+        float x0 = TM.sx[i - 1u], y0 = TM.sy[i - 1u], x1 = TM.sx[i], y1 = TM.sy[i];
+        int32_t a = (int32_t)ceilf(x0 < x1 ? x0 : x1), b = (int32_t)floorf(x0 < x1 ? x1 : x0), cc;
+        for (cc = a; cc <= b; cc++) {
+            if (cc < 0 || cc > 32) continue;
+            col[cc] = x1 == x0 ? y1 : y0 + (y1 - y0) * ((float)cc - x0) / (x1 - x0);
+            has[cc] = 1;
+            if ((uint32_t)cc < lo) lo = (uint32_t)cc;
+            if ((uint32_t)cc > hi) hi = (uint32_t)cc;
+        }
+    }
+    if (lo > hi || lo == hi) return;
+    for (c = lo; c <= hi; c++) ys[c] = has[c] ? cl((int32_t)(col[c] + 0.5f), 0, 16) : -1;
+    {                                           /* out: the points in the stroke's columns (but the first point) */
+        uint32_t j = 0;
+        for (i = 0; i < e->n; i++) if (i == 0u || e->pt[i].x < lo || e->pt[i].x > hi) e->pt[j++] = e->pt[i];
+        e->n = (uint8_t)j;
+    }
+    for (c = lo; c <= hi; c++) {                /* in: where the slope changes, and the ends */
+        int keep;
+        if (ys[c] < 0) continue;
+        keep = c == lo || c == hi || ys[c - 1u] < 0 || ys[c + 1u] < 0 || ys[c] - ys[c - 1u] != ys[c + 1u] - ys[c];
+        if (!keep) continue;
+        if (c == 0u) { e->pt[0].y = (uint8_t)ys[c]; nk++; continue; }
+        if (eg_insert(e, c, (uint32_t)ys[c]) >= 0) nk++;
+    }
+    (void)nk;
+}
+static int mod_down(const tgt_t *hit, float x, float y)   /* a finger down on the Modulators: handled here? */
+{
+    if (hit->kind == T_TAB) { bar_close(); sub = hit->a; bank = 0; hdr_force = 1; return 1; }
+    if (hit->kind == T_FGPEAK || hit->kind == T_FGEND) {
+        bar_close();
+        TM.mode = hit->kind == T_FGPEAK ? 1 : 2; TM.k = hit->a; TM.moved = 0; TM.x0 = x; TM.y0 = y;
+        return 1;
+    }
+    if (hit->kind == T_FGSHAPE) { bar_close(); TM.mode = 5; TM.k = hit->a; TM.moved = 0; TM.x0 = x; TM.y0 = y; return 1; }
+    if (hit->kind == T_EGGRID) {
+        egp_t *e = &P.eg[hit->a % NEG];
+        int32_t i = eg_hit(e, x, y);
+        bar_close();
+        TM.k = hit->a % NEG; TM.moved = 0; TM.x0 = x; TM.y0 = y;
+        if (i >= 0) { TM.mode = 3; TM.idx = i; }
+        else { TM.mode = 4; TM.n = 1; TM.sx[0] = eg_gx(x); TM.sy[0] = eg_gy(y); }
+        return 1;
+    }
+    return 0;
+}
+static void mod_move(float x, float y)
+{
+    float dx = x - TM.x0, dy = y - TM.y0;
+    if (!TM.moved && dx * dx + dy * dy > 16.0f) TM.moved = 1;
+    if (TM.mode == 1 || TM.mode == 2) { if (TM.moved) fg_drag(x); }
+    else if (TM.mode == 3 && TM.moved) {        /* a point moved: between its neighbours, the first stays at 0 */
+        egp_t *e = &P.eg[TM.k];
+        int32_t i = TM.idx, gx = (int32_t)(eg_gx(x) + 0.5f), gy = (int32_t)(eg_gy(y) + 0.5f);
+        if (i > 0) e->pt[i].x = (uint8_t)cl(gx, e->pt[i - 1].x + 1, i + 1 < (int32_t)e->n ? e->pt[i + 1].x - 1 : 32);
+        e->pt[i].y = (uint8_t)cl(gy, 0, 16);
+        eg_sel[TM.k] = i;
+    } else if (TM.mode == 4 && TM.n < 256u) { TM.sx[TM.n] = eg_gx(x); TM.sy[TM.n] = eg_gy(y); TM.n++; }
+}
+static void mod_up(void)
+{
+    egp_t *e = &P.eg[TM.k % NEG];
+    if (TM.mode == 5 && !TM.moved) {            /* an FG's shape tapped: the next curve */
+        P.fg[TM.k].curve = (uint8_t)((P.fg[TM.k].curve + 1u) % 3u);
+        after_change(page, sub, 2u, bank);
+    } else if (TM.mode == 3 && !TM.moved) {     /* a point tapped: chosen; again, let go; twice quickly, out */
+        tgt_t t = {0, 0, 0, 0, T_EGGRID, (uint8_t)TM.k, (uint8_t)TM.idx};
+        if (tap_double(&t) && TM.idx > 0) { eg_delete(e, (uint32_t)TM.idx); eg_sel[TM.k] = -1; }
+        else eg_sel[TM.k] = eg_sel[TM.k] == TM.idx ? -1 : TM.idx;
+    } else if (TM.mode == 4 && !TM.moved) {     /* the grid tapped: a point there */
+        int32_t gx = cl((int32_t)(TM.sx[0] + 0.5f), 0, 32), gy = cl((int32_t)(TM.sy[0] + 0.5f), 0, 16), i;
+        i = eg_insert(e, (uint32_t)gx, (uint32_t)gy);
+        eg_sel[TM.k] = i;
+        if (i >= 0) { tgt_t t = {0, 0, 0, 0, T_EGGRID, (uint8_t)TM.k, (uint8_t)i}; tap_double(&t); }
+    } else if (TM.mode == 4) { eg_stroke(e); eg_sel[TM.k] = -1; }
+    TM.mode = 0;
+}
+
 static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
@@ -220,6 +368,7 @@ static void touch_frame(uint32_t *b)
                 if (hit) TS.at = *hit;
                 continue;
             }
+            if (page == PG_FG && mod_down(hit, x, y)) continue;
             if (hit->kind == T_PAGE && page == PG_INDEX) {
                 icur = hit->a;                  /* the Index opens it, as SEL does (set here, not as a SEL press:
                                                    a press would carry on into the new page, the Disk's "load") */
@@ -234,6 +383,7 @@ static void touch_frame(uint32_t *b)
             }
         } else if (act == TE_MOVE) {
             if (TB.drag) bar_drag(x, y);
+            else if (TM.mode) mod_move(x, y);
             else if (TS.scroll || TS.pending) {
                 float dx = x - TS.x0, dy = y - TS.y0;
                 if (!TS.moved && dx * dx + dy * dy > 25.0f) {   /* (5 pixels: it's a drag) */
@@ -243,6 +393,7 @@ static void touch_frame(uint32_t *b)
                 if (TS.moved && TS.scroll) scroll_drag(x, y);
             }
         } else {
+            if (TM.mode) mod_up();
             if (TS.pending && !TS.moved) pending_tap(&TS.at);
             TS.pending = 0;
             TS.scroll = 0;
@@ -267,6 +418,15 @@ static void touch_draw(void)                    /* on the body's canvas (y from 
     int32_t bx = TB.bx, by = TB.by - BODY_Y, ax = TB.at.x, ay = TB.at.y - BODY_Y, x, pos;
     kn_t *k;
     pen_draw();
+    if (TM.mode == 4 && TM.moved && page == PG_FG) {   /* the stroke being drawn, dim */
+        uint32_t i;
+        for (i = 1; i < TM.n; i++) {
+            int32_t x0 = EGX0 + (int32_t)(TM.sx[i - 1u] * EGCW), y0 = EGY0 + (int32_t)((16.0f - TM.sy[i - 1u]) * EGCH);
+            int32_t x1 = EGX0 + (int32_t)(TM.sx[i] * EGCW), y1 = EGY0 + (int32_t)((16.0f - TM.sy[i]) * EGCH), st, j;
+            st = iabs(x1 - x0) > iabs(y1 - y0) ? iabs(x1 - x0) : iabs(y1 - y0);
+            for (j = 0; j <= st; j++) cv_pset(x0 + (st ? (x1 - x0) * j / st : 0), y0 + (st ? (y1 - y0) * j / st : 0), PH_LO);
+        }
+    }
     if (!TB.open || TB.pg != page || TB.sb != sub || TB.bk != bank) return;
     knobs_for(page, sub, bank);
     k = &KN[TB.knob];

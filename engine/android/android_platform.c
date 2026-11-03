@@ -22,6 +22,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
+#include <math.h>
 
 #ifndef APP_NAME
 #define APP_NAME "QUORUM"
@@ -121,8 +122,26 @@ static int q_save(const char *what, int i, const void *data, uint32_t n, uint32_
 }
 static int settings_load(void *p, uint32_t n) { return q_load("settings", -1, p, n); }
 static int settings_save(const void *p, uint32_t n) { return q_save("settings", -1, p, n, SECTOR_MAX); }
-static int blob_load(uint32_t i, void *p, uint32_t n) { return i < NBLOB ? q_load("blob", (int)i, p, n) : -1; }
-static int blob_save(uint32_t i, const void *p, uint32_t n) { return i < NBLOB ? q_save("blob", (int)i, p, n, SECTOR_MAX) : -1; }
+/* a blob holds two patches. The phone's records are larger than the FM-1's (the envelopes); a blob of the FM-1's size
+ * (two records of 2040 bytes, as the first builds saved them) is read into the start of each of the two, the rest
+ * zero, and the firmware loads it as the older version it is */
+#define OLD_REC 2040u
+static int blob_load(uint32_t i, void *p, uint32_t n)
+{
+    char path[600];
+    FILE *f;
+    long len;
+    if (i >= NBLOB) return -1;
+    if (q_load("blob", (int)i, p, n) == 0) return 0;
+    if (q_path(path, sizeof path, "blob", (int)i) || !(f = fopen(path, "rb"))) return -1;
+    fseek(f, 0, SEEK_END); len = ftell(f); fseek(f, 0, SEEK_SET);
+    if (len != 2L * OLD_REC || n < 2u * OLD_REC || n % 2u) { fclose(f); return -1; }
+    memset(p, 0, n);
+    if (fread(p, 1, OLD_REC, f) != OLD_REC || fread((uint8_t *)p + n / 2u, 1, OLD_REC, f) != OLD_REC) { fclose(f); return -1; }
+    fclose(f);
+    return 0;
+}
+static int blob_save(uint32_t i, const void *p, uint32_t n) { return i < NBLOB ? q_save("blob", (int)i, p, n, 65536u) : -1; }
 static int slot_load(uint32_t i, void *p, uint32_t n) { return i < NSLOT ? q_load("slot", (int)i, p, n) : -1; }
 static int slot_save(uint32_t i, const void *p, uint32_t n) { return i < NSLOT ? q_save("slot", (int)i, p, n, SLOT_MAX) : -1; }
 
