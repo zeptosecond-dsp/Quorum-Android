@@ -11,6 +11,10 @@ in `LICENSE`).
   by Zeptosecond DSP, written by machine (Claude, by Anthropic) with human guidance. `engine/android/android_platform.c`
   follows the shape of Dinghy's `tests/host.c` (zvenson).
 - **Oboe** (Google), the audio library, is Apache-2.0, fetched at build time.
+- **The floppy drive's sounds** (`engine/android/sounds/DISK1.wav`, `DISK3.wav`, `DISKSAVE.wav`, and the data made from
+  them, `engine/android/vt_samples.h`) are recordings by **ullvieib** on [Freesound](https://freesound.org/people/ullvieib/),
+  under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/), resampled, levelled and faded
+  at either end. The app credits them on Global: VINTAGE.
 
 ---
 

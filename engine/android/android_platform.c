@@ -200,16 +200,17 @@ static uint64_t now_us(void)
 
 
 /* ------------------------------------------------------------------ (Global: VINTAGE) the drive and the degauss, heard
- * Mixed in after the engine (whose output fades while the disk runs, as the FM-1's does for its flash), a sample at a
- * time, made here rather than played back: no two accesses sound alike.
- *   8" floppy  the motor's low hum and whine; the head loading with a clunk; the head stepping in runs of sharp ticks
- *              (a few ms apart) between pauses, the tracks it seeks
- *   hard disk  the spindle's hum and a faint high whine; quick soft chatter, the seeks in bursts
+ * Mixed in after the engine (whose output fades while the disk runs, as the FM-1's does for its flash).
+ *   floppy     a 5.25" drive, recorded (ullvieib, freesound.org, CC BY 4.0: sounds/README.md): DISK1 or DISK3 for a
+ *              page, DISKSAVE for a patch saved or loaded
+ *   hard disk  made here: the spindle's hum and a faint high whine; quick soft chatter, the seeks in bursts
  *   degauss    a thunk, then a 50 Hz hum dying away over a second and a half */
 typedef struct { float y1, y2, a1, a2, env, dec; } click_t;   /* a struck resonance: a tick, a thump */
 static click_t vt_cl[4];
 static uint32_t vt_rs = 0x1234567u, vt_nstep, vt_wait, vt_prev, vt_pos;
 static float vt_motor, vt_ph1, vt_ph2, dg_ph, dg_amp;
+static uint32_t vt_play;                        /* the floppy's recording playing (as vt_smp), vt_pos into it */
+#include "vt_samples.h"
 static uint32_t dg_seen = 0xFFFFFFFFu;
 static float vt_noise(void) { vt_rs ^= vt_rs << 13; vt_rs ^= vt_rs >> 17; vt_rs ^= vt_rs << 5; return (float)(int32_t)vt_rs * (1.0f / 2147483648.0f); }
 static void vt_strike(uint32_t i, float hz, float q, float amp, float ms)   /* set a resonance ringing */
@@ -228,13 +229,18 @@ static float vt_click(click_t *c)
 static void vt_audio(int32_t *blk, uint32_t n)
 {
     uint32_t i, k;
-    int on = vt_busy, hdd = aset.drive;
-    if (!on && vt_motor < 0.001f && dg_start_ms == dg_seen && dg_amp < 0.001f) return;
-    if (on && !vt_prev) {                       /* the drive starts: the head loads */
-        vt_rs ^= vt_seed; vt_pos = 0; vt_nstep = 0; vt_wait = 2000u;
-        if (!hdd) vt_strike(3, 90.0f, 3.0f, 120.0f, 40.0f);
+    int on = vt_busy && !vt_smp, hdd = 1;      /* (the synthesised drive: the hard disk; the floppy is recorded) */
+    if (vt_busy && !vt_prev && vt_smp) { vt_play = vt_smp; vt_pos = 0; }   /* the floppy: its recording, from the top */
+    if (!vt_busy) vt_prev = 0;
+    if (!on && !vt_play && vt_motor < 0.001f && dg_start_ms == dg_seen && dg_amp < 0.001f) return;
+    if (on && !vt_prev) { vt_rs ^= vt_seed; vt_nstep = 0; vt_wait = 2000u; }   /* the hard disk spins up */
+    if (vt_busy) vt_prev = 1;
+    if (vt_play) {                              /* (the recording plays out whole, even after the page has moved on) */
+        const int16_t *sm = vt_play == 1u ? VT_DISK1 : vt_play == 2u ? VT_DISK3 : VT_DISKSAVE;
+        uint32_t len = vt_play == 1u ? sizeof VT_DISK1 / 2u : vt_play == 2u ? sizeof VT_DISK3 / 2u : sizeof VT_DISKSAVE / 2u;
+        for (i = 0; i < n && vt_pos < len; i++, vt_pos++) { blk[2u * i] += sm[vt_pos]; blk[2u * i + 1u] += sm[vt_pos]; }
+        if (vt_pos >= len) vt_play = 0;
     }
-    vt_prev = (uint32_t)on;
     if (dg_start_ms != dg_seen) { dg_seen = dg_start_ms; dg_amp = 1.0f; vt_strike(2, 55.0f, 2.0f, 90.0f, 120.0f); }
     for (i = 0; i < n; i++) {
         float o = 0.0f;

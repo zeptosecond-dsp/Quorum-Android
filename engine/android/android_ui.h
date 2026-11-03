@@ -44,13 +44,14 @@ typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist
 static aset_t aset = {3, 2, 6, 1, 0, 1, 0, 0, 0, 3, 0, 0};   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
                                                    lightpen's cursor; (Global: VINTAGE) vint: vintage mode, off until
                                                    asked; odds: a disk access on a page change, rare / 1 in 10 /
-                                                   cranky; drive: 8" floppy / hard disk; burn, persist: 0..10; draw: the
+                                                   cranky; drive: 5.25" floppy (recorded) / hard disk; burn, persist: 0..10; draw: the
                                                    page drawn in over draw x 80 ms; warm: a warm-up at launch */
 static const uint8_t VT_ODDS[3] = {25, 10, 4};   /* a disk access: one page change in so many */
 
 /* (Global: VINTAGE) the disk: an access running (the page frozen, the sound faded, the drive heard); the drive's sounds
  * and the degauss's are mixed in after the engine's fade (android_platform.c) */
-static volatile uint32_t vt_busy, vt_write, vt_seed;
+static volatile uint32_t vt_busy, vt_write, vt_seed, vt_smp;   /* vt_smp: the floppy's recording playing (1 DISK1, 2 DISK3,
+                                                   3 DISKSAVE; 0 the hard disk, heard as synthesised) */
 static uint32_t vt_t0, vt_len, vt_snd_t;
 static volatile uint32_t dg_start_ms = 0xFFFFFFFFu;   /* the degauss: when it started */
 static uint32_t midi_last_ms = 0xFFFFFFFFu;     /* the last MIDI message read: a disk access waits 3 s after it */
@@ -78,6 +79,7 @@ static int touch_take(int32_t *act, int32_t *x16, int32_t *y16)
 static void cmd_label(uint32_t id, char *s);   /* (android_touch.c) a command word as it reads now */
 static uint32_t shown_page = 0xFFFFFFFFu, shown_sub;   /* the page the screen is drawing (frozen while the disk runs) */
 static const char *vt_message(void);           /* (android_touch.c) the header's line while the disk runs */
-static void vt_disk(uint32_t write);           /* (android_touch.c) a disk access now (vintage mode: on) */
+static void vt_disk(uint32_t write, uint32_t patch);   /* (android_touch.c) a disk access now (vintage mode: on); patch: a
+                                                   patch saved or loaded */
 static void touch_frame(uint32_t *b);          /* (android_touch.c) the taps, once a pass of the main loop */
 static void touch_draw(void);                  /* (android_touch.c) the slide bar, over the body before the tube */

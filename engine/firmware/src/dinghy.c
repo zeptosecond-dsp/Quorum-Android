@@ -2047,7 +2047,7 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_SCAN: s_int(s, ASET_LINES[v % 5]); break;
     case F_NOTE: s_note(s, (uint32_t)v); break;
     case F_ODDS: { static const char *const O[3] = {"RARE", "1 IN 10", "CRANKY"}; s_cat(s, O[v % 3]); } break;
-    case F_DRIVE: s_cat(s, v ? "HARD DISK" : "8IN FLOPPY"); break;
+    case F_DRIVE: s_cat(s, v ? "HARD DISK" : "FLOPPY"); break;
     case F_TEN: if (!v) s_cat(s, "OFF"); else s_int(s, v); break;
     case F_DRAW: if (!v) s_cat(s, "INSTANT"); else { s_int(s, v * 80); s_cat(s, "MS"); } break;
     case F_SCLK: if (v <= 10) { s_cat(s, P.clk_midi ? "MIDI/" : "MAST/"); s_int(s, DIVS[v]); }   /* (a slew sequencer's own) */
@@ -3085,6 +3085,7 @@ static void draw_vintage(void)                  /* (Android) GLOBAL: VINTAGE: th
     cv_text(4, 136, &FONT_S, "VINTAGE MODE: NOW AND THEN", PH_LO);
     cv_text(4, 152, &FONT_S, "A PAGE WAITS ON THE DISK.", PH_LO);
     cv_text(4, 168, &FONT_S, "NEVER WITH MIDI OR KEYS ON.", PH_LO);
+    cv_text(4, 186, &FONT_S, "FLOPPY: ULLVIEIB, CC BY 4.0", PH_LO);   /* (the recordings' credit) */
     CMDS(C_DEGAUSS);
     cv_out(BODY_Y);
 }
@@ -4065,7 +4066,7 @@ static void app_main(void)
                 else if (pconf == PC_SAVE || !pused[pcur]) {
                     pmsg = patch_save(pcur) == 0 ? "SAVED" : "SAVE FAILED";
 #ifdef QUORUM_ANDROID
-                    vt_disk(1u);                /* (vintage: the drive writes it, for a while) */
+                    vt_disk(1u, 1u);                /* (vintage: the drive writes it, for a while) */
 #endif
                     pconf = PC_NONE; t_msg = fm1_ms;
                 } else pconf = PC_SAVE;
@@ -4075,7 +4076,7 @@ static void app_main(void)
                 else if (pconf == PC_LOAD) {
                     pmsg = patch_load(pcur) != 0 ? "LOAD FAILED" : pcur == P_RANDOM ? "ROLLED" : "LOADED";
 #ifdef QUORUM_ANDROID
-                    if (pcur != P_RANDOM && pcur != 0u) vt_disk(0u);   /* (vintage: the drive reads it) */
+                    if (pcur != P_RANDOM && pcur != 0u) vt_disk(0u, 1u);   /* (vintage: the drive reads it) */
 #endif
                     pconf = PC_NONE; t_msg = fm1_ms;
                 } else pconf = PC_LOAD;

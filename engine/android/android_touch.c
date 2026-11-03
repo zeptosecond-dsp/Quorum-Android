@@ -371,11 +371,13 @@ static int vt_safe(void)                        /* never while the music depends
     if (midi_last_ms != 0xFFFFFFFFu && fm1_ms - midi_last_ms < 3000u) return 0;
     return 1;
 }
-static void vt_disk(uint32_t write)
+static void vt_disk(uint32_t write, uint32_t patch)
 {
+    static const uint32_t SMP_MS[4] = {0u, 3280u, 2362u, 1362u};   /* (the recordings' lengths) */
     if (!aset.vint || vt_busy || !vt_safe()) return;
     vt_write = write;
-    vt_len = write ? 1600u + vt_rand(1400u) : 900u + vt_rand(1300u);
+    if (aset.drive) { vt_smp = 0; vt_len = write ? 1600u + vt_rand(1400u) : 900u + vt_rand(1300u); }
+    else { vt_smp = patch ? 3u : 1u + vt_rand(2u); vt_len = SMP_MS[vt_smp] + 120u; }   /* (the floppy: as long as it is heard) */
     vt_t0 = fm1_ms; vt_seed = vt_rand(0xFFFFFFFFu) | 1u;
     vt_busy = 1;
     mute = 1;                                   /* (the engine fades out, as for the FM-1's flash; the drive is heard) */
@@ -396,7 +398,7 @@ static void vt_poll(void)                       /* each pass: a page changed (by
 {
     static uint32_t vp = 0xFFFFFFFFu, vs;
     if (page != vp || sub != vs) {
-        if (vp != 0xFFFFFFFFu && aset.vint && !vt_busy && vt_rand(VT_ODDS[aset.odds % 3u]) == 0u) vt_disk(0u);
+        if (vp != 0xFFFFFFFFu && aset.vint && !vt_busy && vt_rand(VT_ODDS[aset.odds % 3u]) == 0u) vt_disk(0u, 0u);
         vp = page; vs = sub;
     }
     if (vt_busy && fm1_ms - vt_t0 >= vt_len) { vt_busy = 0; mute = 0; hdr_force = 1; }

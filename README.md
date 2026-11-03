@@ -31,4 +31,5 @@ last and keeps your patches.
 
 ## Licence
 
-GPL-3.0-only, as Quorum and Dinghy (see `LICENSE` and `LICENSING.md`). Oboe is Apache-2.0.
+GPL-3.0-only, as Quorum and Dinghy (see `LICENSE` and `LICENSING.md`). Oboe is Apache-2.0. The floppy drive's sounds are
+by [ullvieib](https://freesound.org/people/ullvieib/) on Freesound, CC BY 4.0 (`engine/android/sounds/`).
