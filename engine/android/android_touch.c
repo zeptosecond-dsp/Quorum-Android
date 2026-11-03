@@ -214,8 +214,9 @@ static void touch_frame(uint32_t *b)
                 continue;
             }
             if (hit->kind == T_PAGE && page == PG_INDEX) {
-                icur = hit->a;                  /* the Index opens it, as SEL does */
-                *b |= 1u << BTN_SEL;
+                icur = hit->a;                  /* the Index opens it, as SEL does (set here, not as a SEL press:
+                                                   a press would carry on into the new page, the Disk's "load") */
+                page = icur; sub = 0; bank = 0; hdr_force = 1;
                 bar_close();
             } else if (hit->kind == T_KNOB) {
                 tgt_t t = *hit;
