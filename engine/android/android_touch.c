@@ -29,6 +29,8 @@ static struct {
     int pending;                                /* a file or a crosspoint under the finger: its tap, if it stays put */
     tgt_t at;
 } TS;
+static int32_t pen_x = -1, pen_y = -1;          /* the lightpen's point: where the last touch landed, shown a moment */
+static uint32_t pen_t, pen_down;
 static uint32_t tap_id, tap_t;                  /* the last tap (kind, a, b) and when: two quick ones */
 static int tap_double(const tgt_t *t)
 {
@@ -195,6 +197,7 @@ static void touch_frame(uint32_t *b)
     if (TB.open && (TB.pg != page || TB.sb != sub || TB.bk != bank)) bar_close();
     while (touch_take(&act, &x16, &y16)) {
         float x = (float)x16 / 16.0f, y = (float)y16 / 16.0f;
+        pen_x = x16 >> 4; pen_y = y16 >> 4; pen_t = fm1_ms; pen_down = act != TE_UP;
         if (act == TE_DOWN) {
             uint32_t i;
             const tgt_t *hit = 0;
@@ -242,11 +245,21 @@ static void touch_frame(uint32_t *b)
     }
 }
 
+static void pen_draw(void)                      /* the lightpen's point: a small cross, while down and a moment after */
+{
+    int32_t x = pen_x, y = pen_y - BODY_Y;
+    if (pen_x < 0 || (!pen_down && fm1_ms - pen_t > 400u) || y < 0 || y >= BODY_H) return;
+    cv_rect(x - 6, y, 4, 1, PH_HI); cv_rect(x + 3, y, 4, 1, PH_HI);
+    cv_rect(x, y - 6, 1, 4, PH_HI); cv_rect(x, y + 3, 1, 4, PH_HI);
+    cv_rect(x, y, 1, 1, PH_MID);
+}
+
 static void touch_draw(void)                    /* on the body's canvas (y from BODY_Y), before the tube */
 {
     char s[24];
     int32_t bx = TB.bx, by = TB.by - BODY_Y, ax = TB.at.x, ay = TB.at.y - BODY_Y, x, pos;
     kn_t *k;
+    pen_draw();
     if (!TB.open || TB.pg != page || TB.sb != sub || TB.bk != bank) return;
     knobs_for(page, sub, bank);
     k = &KN[TB.knob];
