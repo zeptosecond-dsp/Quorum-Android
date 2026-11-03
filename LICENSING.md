@@ -1,0 +1,58 @@
+# Licensing
+
+Quorum for Android is free software under the GNU General Public License, version 3 only (`GPL-3.0-only`, full text
+in `LICENSE`).
+
+- **The engine** (`engine/firmware/`) is Quorum's firmware, copied unchanged from
+  [zeptosecond-dsp/Quorum](https://github.com/zeptosecond-dsp/Quorum) but for the platform switch in `platform.c`.
+  Its authorship is as Quorum's own licensing notes give it, reproduced below.
+- **The Android port** (`engine/android/`, `engine/tests/`, `engine/sync_from_quorum.sh`, `app/`, the build files) is
+  by Zeptosecond DSP, written by machine (Claude, by Anthropic) with human guidance. `engine/android/android_platform.c`
+  follows the shape of Dinghy's `tests/host.c` (zvenson).
+- **Oboe** (Google), the audio library, is Apache-2.0, fetched at build time.
+
+---
+
+## Quorum's licensing notes
+
+Quorum is free software under the GNU General Public License, version 3 only (`GPL-3.0-only`, full text in
+`LICENSE`), as Dinghy, which it is built on. The app (`firmware/src/dinghy.c`, `ca_tables.h`, `q_tables.h`, `verb.h`,
+`tunings.h`, `luts.h`, `font_chunky.h`), `tools/gen_ca_tables.py`, `tools/gen_tables.py`, `tools/gen_font8.py`,
+`tools/preview_tables.py`, `tools/fm1_winmidi.py`, the host scripts in `tests/scripts/` and `docs/QUICKSTART.md` are by
+Zeptosecond DSP, written by machine (Claude, by Anthropic) with human guidance; `verb.h` (the reverb), `tunings.h`,
+`luts.h` and `wt_tables.h` come from its sister, [Arcturus S6](https://github.com/zeptosecond-dsp/Arcturus-S6). Everything else is Dinghy's, as below.
+
+---
+
+Dinghy is free software under the GNU General Public License, version 3 only (`GPL-3.0-only`, full text in
+`LICENSE`). You may use, study, change and share it. If you give someone a firmware built from it, give them its
+complete source under the same licence too.
+
+## Who made what
+
+| | |
+| --- | --- |
+| The platform: `firmware/hal/`, `firmware/loader/`, `crt0.S`, `app.ld`, `firmware/src/` (`usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c`, `libc.c`, `bootguard.h`, `uac_fir.h`), `tools/` | Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments ([Felucca](https://github.com/hugelton/Felucca)), with the changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) |
+| The SMK-37 board layer: `firmware/hal/smk_input.h`, `fm1_flash_map.h`, the SMK-37 parts of `fm1_cc.h`, `fm1_flash.h`, `fm1_lcd_hw.h`, `lcd.c`, `ota.c`, `bootguard.h`, `firmware/loader/`, `tools/fm1pkg_make.py`, `tools/fm1_install.py`, `tools/build.py`; `firmware/src/smk_wheel.h`; `tests/ota_test.c`, `ldr_test.c`, `install_test.py`, `smk_wheel_test.c`, `smk_pkg_test.py` | Copyright (C) 2026 M. Geisler (genkigenki/makkuro), from [genkigenki/sloop-fm1](https://github.com/genkigenki/sloop-fm1) branch `smk37` (the reference port of the [fm1-to-smk37](https://github.com/genkigenki/fm1-to-smk37) kit) |
+| The TRS MIDI IN `firmware/src/midi_uart.c` | Felucca's, as sloopDX carries it, with the ring read by content from Felucca [Salt] 0.9-salt14 by ChanceTheMaker (found by keremimo) |
+| The update loader's screen: `firmware/loader/ldr_screen.c`, `tests/ldr_screen_test.c` | Copyright (C) 2026 zvenson (from OberVave, the Firmware Hub's look); the idea, a loader that draws, its 5 x 7 letters and the order of things from [Skiff](https://github.com/illuminus5/skiff) by illuminus5, GPL-3.0 |
+| From OberVave: the storage (blobs, slots), `LCD_IDLE`, the SMK-37 wiring of `platform.c`, `store.h`, the pad event queue in `smk_input.h`, `tests/smk_flash_test.c`, `tests/run_tests.sh`, the CI workflow | Copyright (C) 2026 zvenson |
+| The app `firmware/src/dinghy.c`, the wiring `platform.c`, the host mode `tests/`, the docs | zvenson |
+
+## Third-party material
+
+| What | Licence | Where |
+| --- | --- | --- |
+| font8x8_basic by Daniel Hepper (after the IBM VGA fonts), rendered into `firmware/src/font_chunky.h` | Public domain | `tools/third_party/font8x8_basic.h` |
+| Terminus font 8x16 (ter-u16n), rendered into `firmware/gen/felucca_font.h` | SIL OFL 1.1 | `assets/fonts/Terminus-LICENSE.txt` |
+| JieLi AC79 SDK: `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` are read from your SDK checkout at build time and placed in the package; no SDK files are in this tree | Apache-2.0 | <https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK> |
+
+## The logo
+
+Dinghy's logo (the designburg signet, all rights reserved, not under the GPL) marks Dinghy itself and is not part of
+this fork. `assets/card.png` is Quorum's own (its boot screen).
+
+## Trademarks
+
+"Felucca" and "Hügelton Instruments" are names of Hügelton Instruments; "M-VAVE", "FM-1", "SMK-37" and "MKE-P37"
+belong to their owners. Dinghy and Quorum are not made or endorsed by them.

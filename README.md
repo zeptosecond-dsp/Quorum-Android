@@ -1,0 +1,29 @@
+# Quorum for Android
+
+[Quorum](https://github.com/zeptosecond-dsp/Quorum), the cellular additive synthesiser for the M-Vave FM-1, as an
+Android app. The engine is Quorum's own firmware, unchanged; around it, a phosphor-screen interface played with your
+finger as a Fairlight-style lightpen.
+
+## Status
+
+**Step one.** The firmware runs on the phone with its sound and its own screen, played from a stand-in FM-1 panel
+(encoders as drag strips, the fourteen buttons, the 27 keys). The touch pages come next.
+
+## Installing a build
+
+Every push to `main` builds the app. Open the repo's **Releases** on your phone, pick **dev-build**, tap
+`quorum-dev.apk` and install it (Android asks once to allow installs from your browser). Each build installs over the
+last and keeps your patches.
+
+## How it fits together
+
+| | |
+| --- | --- |
+| `engine/firmware/` | Quorum's firmware sources, copied from the Quorum repo (`engine/QUORUM_COMMIT` says which commit). One change: `platform.c` includes the Android platform layer when `QUORUM_ANDROID` is set. Refresh with `engine/sync_from_quorum.sh /path/to/Quorum`. |
+| `engine/android/android_platform.c` | The FM-1 as the firmware sees it, on a phone: the firmware's main loop on its own thread, real time, the screen, storage, the panel, MIDI in, and the sound rendered a block at a time into a ring for Oboe. |
+| `engine/tests/desktop_check.sh` | Builds the same thing on a computer and plays it for a few seconds (a WAV and a screen out): a check that runs on every push. |
+| `app/` | The Android app: Kotlin views, and `quorum_jni.cpp` with Oboe for the audio. |
+
+## Licence
+
+GPL-3.0-only, as Quorum and Dinghy (see `LICENSE` and `LICENSING.md`). Oboe is Apache-2.0.

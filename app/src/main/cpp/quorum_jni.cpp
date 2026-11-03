@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// The bridge: Kotlin (com.zeptosecond.quorum.Native) <-> the engine (engine/android/android_platform.c), and Oboe's
+// output stream pulling the engine's sound.
+#include <jni.h>
+#include <android/log.h>
+#include <oboe/Oboe.h>
+#include <memory>
+#include <mutex>
+
+extern "C" {
+void quorum_start(const char *dir);
+void quorum_pull(float *out, int32_t n);
+void quorum_set_latency(uint32_t frames);
+uint32_t quorum_underruns(void);
+void quorum_button(int32_t id, int32_t down);
+void quorum_enc(int32_t id, int32_t detents);
+void quorum_keys(uint32_t mask);
+void quorum_midi(uint8_t st, uint8_t d1, uint8_t d2);
+uint64_t quorum_leds(void);
+uint64_t quorum_glow(void);
+void quorum_copy_screen(uint32_t *argb);
+}
+
+#define TAG "Quorum"
+
+namespace {
+
+bool openAndStart();
+
+class Callback : public oboe::AudioStreamDataCallback, public oboe::AudioStreamErrorCallback {
+public:
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream *, void *data, int32_t frames) override {
+        quorum_pull(static_cast<float *>(data), frames);
+        return oboe::DataCallbackResult::Continue;
+    }
+    void onErrorAfterClose(oboe::AudioStream *, oboe::Result error) override {
+        // headphones in or out, a USB interface: the stream closes; open a new one on the new device
+        __android_log_print(ANDROID_LOG_INFO, TAG, "stream closed (%s), reopening", oboe::convertToText(error));
+        if (error == oboe::Result::ErrorDisconnected) openAndStart();
+    }
+};
+
+Callback gCallback;
+std::shared_ptr<oboe::AudioStream> gStream;
+std::mutex gLock;
+bool gWanted = false;
+
+bool openAndStart() {
+    std::lock_guard<std::mutex> l(gLock);
+    if (!gWanted) return false;
+    oboe::AudioStreamBuilder b;
+    b.setDirection(oboe::Direction::Output)
+        ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
+        ->setSharingMode(oboe::SharingMode::Shared)
+        ->setFormat(oboe::AudioFormat::Float)
+        ->setChannelCount(oboe::ChannelCount::Stereo)
+        ->setSampleRate(44100)   // the engine's rate, as the FM-1 sends it; Oboe converts if the phone runs at 48k
+        ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
+        ->setUsage(oboe::Usage::Media)
+        ->setContentType(oboe::ContentType::Music)
+        ->setDataCallback(&gCallback)
+        ->setErrorCallback(&gCallback);
+    oboe::Result r = b.openStream(gStream);
+    if (r != oboe::Result::OK) {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "openStream: %s", oboe::convertToText(r));
+        return false;
+    }
+    r = gStream->requestStart();
+    if (r != oboe::Result::OK) {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "requestStart: %s", oboe::convertToText(r));
+        return false;
+    }
+    __android_log_print(ANDROID_LOG_INFO, TAG, "audio: %d Hz, %d frames a burst",
+                        gStream->getSampleRate(), gStream->getFramesPerBurst());
+    return true;
+}
+
+void stopAndClose() {
+    std::lock_guard<std::mutex> l(gLock);
+    if (gStream) {
+        gStream->stop();
+        gStream->close();
+        gStream.reset();
+    }
+}
+
+}  // namespace
+
+#define JNI extern "C" JNIEXPORT
+#define FN(name) Java_com_zeptosecond_quorum_Native_##name
+
+JNI void JNICALL FN(start)(JNIEnv *env, jclass, jstring dir) {
+    const char *d = env->GetStringUTFChars(dir, nullptr);
+    quorum_start(d);
+    env->ReleaseStringUTFChars(dir, d);
+}
+JNI jboolean JNICALL FN(audioStart)(JNIEnv *, jclass) {
+    { std::lock_guard<std::mutex> l(gLock); gWanted = true; if (gStream) return JNI_TRUE; }
+    return openAndStart() ? JNI_TRUE : JNI_FALSE;
+}
+JNI void JNICALL FN(audioStop)(JNIEnv *, jclass) {
+    { std::lock_guard<std::mutex> l(gLock); gWanted = false; }
+    stopAndClose();
+}
+JNI void JNICALL FN(setLatency)(JNIEnv *, jclass, jint frames) { quorum_set_latency((uint32_t)frames); }
+JNI jint JNICALL FN(underruns)(JNIEnv *, jclass) { return (jint)quorum_underruns(); }
+JNI void JNICALL FN(button)(JNIEnv *, jclass, jint id, jboolean down) { quorum_button(id, down ? 1 : 0); }
+JNI void JNICALL FN(enc)(JNIEnv *, jclass, jint id, jint detents) { quorum_enc(id, detents); }
+JNI void JNICALL FN(keys)(JNIEnv *, jclass, jint mask) { quorum_keys((uint32_t)mask); }
+JNI void JNICALL FN(midi)(JNIEnv *, jclass, jint st, jint d1, jint d2) {
+    quorum_midi((uint8_t)st, (uint8_t)d1, (uint8_t)d2);
+}
+JNI jlong JNICALL FN(leds)(JNIEnv *, jclass) { return (jlong)quorum_leds(); }
+JNI jlong JNICALL FN(glow)(JNIEnv *, jclass) { return (jlong)quorum_glow(); }
+JNI void JNICALL FN(screen)(JNIEnv *env, jclass, jintArray out) {
+    if (env->GetArrayLength(out) < 240 * 240) return;
+    jint *p = env->GetIntArrayElements(out, nullptr);
+    quorum_copy_screen(reinterpret_cast<uint32_t *>(p));
+    env->ReleaseIntArrayElements(out, p, 0);
+}
