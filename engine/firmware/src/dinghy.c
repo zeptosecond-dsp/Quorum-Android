@@ -2731,6 +2731,10 @@ static void draw_seq(void)                      /* a sequencer: its steps as bar
     for (i = 0; i < 8u; i++) {
         int32_t x = 8 + (int32_t)i * 24, ht = q->val[i] * 88 / 127, in = i < len;
         if (i == scur[n]) cv_rect(x - 3, 4, 24, 116, PH_SEL);            /* the cursor */
+#ifdef QUORUM_ANDROID
+        if (i == st) cv_rect(x + 6, 7, 6, 6, sq_mode_v[n] || !P.sq_stop[n] ? PH_HI : PH_LO);   /* the step playing: a dot
+                                                   above it (dim while stopped) */
+#endif
         if (in) cv_rect(x, 104 - ht, 18, ht + 1, i == st ? PH_HI : PH_MID);
         else { int32_t y; for (y = 104 - ht; y <= 104; y += 3) cv_rect(x, y, 18, 1, PH_LO); }
         if (q->gate[i]) cv_rect(x + 5, 110, 8, 6, in ? (i == st && (sq_gate_v >> n & 1u) ? PH_HI : PH_MID) : PH_LO);
