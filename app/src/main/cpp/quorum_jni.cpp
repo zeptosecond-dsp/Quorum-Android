@@ -19,6 +19,7 @@ void quorum_midi(uint8_t st, uint8_t d1, uint8_t d2);
 uint64_t quorum_leds(void);
 uint64_t quorum_glow(void);
 void quorum_copy_screen(uint32_t *argb);
+void quorum_crt(uint8_t *intensity, uint8_t *rgba, int32_t *gain);
 }
 
 #define TAG "Quorum"
@@ -117,4 +118,13 @@ JNI void JNICALL FN(screen)(JNIEnv *env, jclass, jintArray out) {
     jint *p = env->GetIntArrayElements(out, nullptr);
     quorum_copy_screen(reinterpret_cast<uint32_t *>(p));
     env->ReleaseIntArrayElements(out, p, 0);
+}
+// the tube's inputs for CrtView: intensities (240 x 240 bytes), the phosphor ramp (256 RGBA), the gain (2 ints)
+JNI void JNICALL FN(crt)(JNIEnv *env, jclass, jobject intensity, jobject ramp, jintArray gain) {
+    auto *in = static_cast<uint8_t *>(env->GetDirectBufferAddress(intensity));
+    auto *rg = static_cast<uint8_t *>(env->GetDirectBufferAddress(ramp));
+    if (!in || !rg || env->GetDirectBufferCapacity(intensity) < 240 * 240 || env->GetDirectBufferCapacity(ramp) < 1024) return;
+    jint g[2];
+    quorum_crt(in, rg, reinterpret_cast<int32_t *>(g));
+    env->SetIntArrayRegion(gain, 0, 2, g);
 }

@@ -15,6 +15,7 @@ void quorum_keys(uint32_t mask);
 void quorum_button(int32_t id, int32_t down);
 uint32_t quorum_underruns(void);
 void quorum_copy_screen(uint32_t *argb);
+void quorum_crt(uint8_t *intensity, uint8_t *rgba, int32_t *gain);
 
 int main(int argc, char **argv)
 {
@@ -55,6 +56,15 @@ int main(int argc, char **argv)
     fprintf(f, "P6 240 240 255\n");
     for (i = 0; i < 240u * 240u; i++) { fputc(scr[i] >> 16 & 255, f); fputc(scr[i] >> 8 & 255, f); fputc(scr[i] & 255, f); }
     fclose(f);
+    {                                           /* what the phone's tube gets: intensity, ramp, gain */
+        static uint8_t in[240 * 240], ramp[1024];
+        int32_t gain[2];
+        quorum_crt(in, ramp, gain);
+        snprintf(name, sizeof name, "%s/crt.bin", out);
+        f = fopen(name, "wb");
+        fwrite(in, 1, sizeof in, f); fwrite(ramp, 1, sizeof ramp, f); fwrite(gain, 4, 2, f);
+        fclose(f);
+    }
     printf("peak %.3f, underruns %u -> %s/quorum.wav, screen.ppm\n", peak, quorum_underruns(), out);
     return peak > 0.0005 ? 0 : 1;
 }

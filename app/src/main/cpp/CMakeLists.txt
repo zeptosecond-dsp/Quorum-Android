@@ -10,7 +10,7 @@ set(ENG ${CMAKE_CURRENT_SOURCE_DIR}/../../../../engine)
 
 add_library(quorum SHARED
     quorum_jni.cpp
-    ${ENG}/firmware/src/dinghy.c)
+    ${ENG}/android/quorum_engine.c)
 
 target_include_directories(quorum PRIVATE
     ${ENG}/android
@@ -21,6 +21,6 @@ target_include_directories(quorum PRIVATE
 target_compile_definitions(quorum PRIVATE QUORUM_ANDROID DINGHY_HOST "APP_VER=\"A0.1\"")
 
 # the firmware is built as its own authors build it; its warnings are theirs
-set_source_files_properties(${ENG}/firmware/src/dinghy.c PROPERTIES COMPILE_OPTIONS "-O2;-w;-std=gnu11")
+set_source_files_properties(${ENG}/android/quorum_engine.c PROPERTIES COMPILE_OPTIONS "-O2;-w;-std=gnu11")
 
 target_link_libraries(quorum oboe::oboe log android)

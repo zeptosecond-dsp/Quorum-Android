@@ -11,6 +11,8 @@ import android.widget.LinearLayout
 
 /** Step one: the engine, its own screen, and a stand-in FM-1 panel to play it with. */
 class MainActivity : Activity() {
+    private lateinit var crt: CrtView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -20,7 +22,8 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(5, 8, 6))
         }
-        root.addView(ScreenView(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+        crt = CrtView(this)
+        root.addView(crt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT))
         root.addView(PanelView(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         // keep clear of the status bar, notches and the gesture bar (Android 15 draws apps edge to edge)
@@ -36,6 +39,16 @@ class MainActivity : Activity() {
             insets
         }
         setContentView(root)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        crt.onResume()
+    }
+
+    override fun onPause() {
+        crt.onPause()
+        super.onPause()
     }
 
     override fun onStart() {

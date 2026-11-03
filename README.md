@@ -21,6 +21,7 @@ last and keeps your patches.
 | --- | --- |
 | `engine/firmware/` | Quorum's firmware sources, copied from the Quorum repo (`engine/QUORUM_COMMIT` says which commit). One change: `platform.c` includes the Android platform layer when `QUORUM_ANDROID` is set. Refresh with `engine/sync_from_quorum.sh /path/to/Quorum`. |
 | `engine/android/android_platform.c` | The FM-1 as the firmware sees it, on a phone: the firmware's main loop on its own thread, real time, the screen, storage, the panel, MIDI in, and the sound rendered a block at a time into a ring for Oboe. |
+| `engine/android/android_tail.c` | Read after the firmware: the screen's light before the tube, so the phone can draw the tube itself on the GPU (`CrtView.kt`) at full resolution, with fine scanlines. |
 | `engine/tests/desktop_check.sh` | Builds the same thing on a computer and plays it for a few seconds (a WAV and a screen out): a check that runs on every push. |
 | `app/` | The Android app: Kotlin views, and `quorum_jni.cpp` with Oboe for the audio. |
 

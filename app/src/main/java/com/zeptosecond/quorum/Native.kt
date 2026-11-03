@@ -24,8 +24,11 @@ object Native {
     @JvmStatic external fun leds(): Long
     @JvmStatic external fun glow(): Long
 
-    /** The 240 x 240 screen as ARGB. */
+    /** The 240 x 240 screen as ARGB (the firmware's own tube, 16-bit colour). */
     @JvmStatic external fun screen(out: IntArray)
+
+    /** The tube's inputs, for [CrtView]: [intensity] 240 x 240 bytes and [ramp] 256 RGBA (direct buffers), [gain] 2. */
+    @JvmStatic external fun crt(intensity: java.nio.ByteBuffer, ramp: java.nio.ByteBuffer, gain: IntArray)
 
     // the FM-1's ids (firmware/src/platform.c)
     const val BTN_OCT_DOWN = 0
