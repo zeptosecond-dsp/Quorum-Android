@@ -8,12 +8,20 @@
  *   a value        (a knob's readout, a VDU setting) tap it: a switch steps to its next setting; anything else gets
  *                  the slide bar. Drag along the bar to move the value from where it is; slide the finger up or
  *                  down, away from the bar, for finer steps. Tap the value again, or anywhere else, to put it away.
+ *   lists          drag the page to scroll what runs off it: the Disk's files, the matrices' rows and columns, the
+ *                  piano roll's notes (up and down) and pages (swipe left for the next). The cursor stays in view.
+ *   Disk           tap a file to choose it.
  *
  * Taps that the panel can do become the panel's own presses (b), so the firmware does exactly what it does for the
  * buttons; values are set as the knobs set them (kn_put, after_change). */
 
 #define BAR_W 168
 #define BAR_H 36
+
+static struct {
+    int scroll;                                 /* a drag in the page, scrolling its list */
+    float sx, sy, ax, ay;
+} TS;
 
 static struct {
     int open, drag;
@@ -96,6 +104,55 @@ static void bar_drag(float x, float y)
     }
 }
 
+/* scrolling: n rows (+ further down the list) and m columns (+ further right), by page */
+static uint32_t clampu(int32_t v, int32_t lo, int32_t hi) { return (uint32_t)(v < lo ? lo : v > hi ? hi : v); }
+static void scroll_by(int32_t n, int32_t m)
+{
+    if (page == PG_MOD) {
+        mtop = clampu((int32_t)mtop + n, 0, (int32_t)NSRC - (int32_t)MROWS);
+        mleft = clampu((int32_t)mleft + m, 0, (int32_t)NDST - (int32_t)MCOLS);
+        mrow = clampu((int32_t)mrow, (int32_t)mtop, (int32_t)mtop + (int32_t)MROWS - 1);
+        mcol = clampu((int32_t)mcol, (int32_t)mleft, (int32_t)mleft + (int32_t)MCOLS - 1);
+    } else if (page == PG_GMAT) {
+        gtop = clampu((int32_t)gtop + n, 0, (int32_t)NGS - 8);
+        gleft = clampu((int32_t)gleft + m, 0, (int32_t)NGD - (int32_t)GCOLS);
+        grow = clampu((int32_t)grow, (int32_t)gtop, (int32_t)gtop + 7);
+        gcol = clampu((int32_t)gcol, (int32_t)gleft, (int32_t)gleft + (int32_t)GCOLS - 1);
+    } else if (page == PG_PATCH && !p_ren) {
+        uint32_t ln, cl_;
+        p_top = clampu((int32_t)p_top + n, 0, (int32_t)P_LINES - (int32_t)P_SHOW);
+        cl_ = p_line(pcur);
+        if (cl_ < p_top || cl_ >= p_top + P_SHOW) {   /* the cursor onto the nearest file in view */
+            int up = cl_ < p_top;
+            for (ln = up ? p_top : p_top + P_SHOW - 1u; ln < P_LINES; ln = up ? ln + 1u : ln - 1u) {
+                if (ln != 0u && ln != 3u) { pcur = ln == 1u ? 0u : ln == 2u ? P_RANDOM : ln - 3u; break; }
+                if (!up && ln == 0u) break;
+            }
+            pconf = PC_NONE; pmsg = "";
+        }
+    } else if (page == PG_SEQ && sub >= NSEQ) {
+        uint32_t steps = P.ks.steps < 1u ? 1u : P.ks.steps > KS_MAX ? KS_MAX : P.ks.steps;
+        kv_top = clampu((int32_t)kv_top - n, 21 + (int32_t)KV_ROWS - 1, 96);
+        kc_note = clampu((int32_t)kc_note, (int32_t)kv_top - (int32_t)KV_ROWS + 1, (int32_t)kv_top);
+        if (m) { kc_pos = clampu((int32_t)kc_pos + m * (int32_t)KS_SPP, 0, (int32_t)steps - 1); t_kedit = fm1_ms; }
+    }
+}
+static void scroll_drag(float x, float y)
+{
+    float rh = 12.0f, cw = 20.0f;               /* a row's, a column's worth of finger (in screen pixels) */
+    int32_t n, m;
+    if (page == PG_MOD) { rh = 17.0f; cw = 29.0f; }
+    else if (page == PG_GMAT) { rh = 15.0f; cw = 17.0f; }
+    else if (page == PG_PATCH) rh = 16.0f;
+    else if (page == PG_SEQ) { rh = 8.0f; cw = 51.0f; }
+    TS.ay += TS.sy - y; TS.ax += TS.sx - x;     /* (the finger up: further down; left: further right) */
+    TS.sx = x; TS.sy = y;
+    n = (int32_t)(TS.ay / rh); m = (int32_t)(TS.ax / cw);
+    TS.ay -= (float)n * rh; TS.ax -= (float)m * cw;
+    if (n || m) scroll_by(n, m);
+}
+static int scrolls(void) { return page == PG_MOD || page == PG_GMAT || page == PG_PATCH || (page == PG_SEQ && sub >= NSEQ); }
+
 static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
@@ -112,7 +169,12 @@ static void touch_frame(uint32_t *b)
             if (y < (float)BODY_Y) { bar_close(); header_tap(x, b); continue; }
             for (i = tgt_n; i-- > 0;)
                 if (x >= tgt[i].x && x < tgt[i].x + tgt[i].w && y >= tgt[i].y && y < tgt[i].y + tgt[i].h) { hit = &tgt[i]; break; }
-            if (!hit) { bar_close(); continue; }
+            if (!hit || hit->kind == T_DISK) {  /* the page itself: a drag scrolls it */
+                bar_close();
+                TS.scroll = scrolls(); TS.sx = x; TS.sy = y; TS.ax = TS.ay = 0.0f;
+                if (hit && !p_ren) { pcur = hit->a; pconf = PC_NONE; pmsg = ""; }   /* (a Disk file: chosen) */
+                continue;
+            }
             if (hit->kind == T_PAGE && page == PG_INDEX) {
                 icur = hit->a;                  /* the Index opens it, as SEL does */
                 *b |= 1u << BTN_SEL;
@@ -123,7 +185,9 @@ static void touch_frame(uint32_t *b)
             }
         } else if (act == TE_MOVE) {
             if (TB.drag) bar_drag(x, y);
+            else if (TS.scroll) scroll_drag(x, y);
         } else {
+            TS.scroll = 0;
             TB.drag = 0;
             TB.fine = 1.0f;
         }

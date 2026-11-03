@@ -3023,6 +3023,9 @@ static void draw_disk(void)
             if (!pused[slot]) s_cat(s, "--------    -");
             else { s_name(s, p_ren && slot == cur ? p_rname : pname[slot]); s_cat(s, " PAT 2040"); }
         }
+#ifdef QUORUM_ANDROID
+        tgt_add(0, BODY_Y + y - 1, 240, 16, T_DISK, slot);
+#endif
         if (slot == cur) cv_rect(20, y - 1, 220, 17, PH_SEL);
         cv_text(22, y, &FONT_S, s, slot == cur ? PH_HI : slot == P_RANDOM || slot == 0u || pused[slot] ? PH_MID : PH_LO);
         if (slot == ploaded) cv_text(228, y, &FONT_S, "*", PH_HI);   /* (the one playing) */

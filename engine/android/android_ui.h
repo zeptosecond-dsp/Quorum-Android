@@ -5,7 +5,8 @@
  * Touch targets: as a page draws itself it says where its touchable things are (a knob's readout, an Index line);
  * a tap goes to whatever is under the finger. The list is rebuilt every time the page is drawn. */
 
-enum { T_KNOB, T_PAGE };                        /* a knob's value (a = K1..K4: 0..3); an Index line (a = the page) */
+enum { T_KNOB, T_PAGE, T_DISK };                /* a knob's value (a = K1..K4: 0..3); an Index line (a = the page); a
+                                                   Disk file (a = its slot) */
 typedef struct { int16_t x, y, w, h; uint8_t kind, a; } tgt_t;
 #define NTGT 64
 static tgt_t tgt[NTGT];
