@@ -20,7 +20,7 @@ import kotlin.math.roundToInt
 class CrtView(context: Context) : GLSurfaceView(context) {
     /** Scanlines: one dark line every [linePx] device pixels (0: the screen's height / 360), this much darker. */
     @Volatile var linePx = 0
-    @Volatile var lineDim = 0.72f
+    @Volatile var lineDim = 0.6f
 
     private val renderer = Renderer()
 
