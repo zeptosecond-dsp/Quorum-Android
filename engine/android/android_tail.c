@@ -10,8 +10,8 @@
 /* The FM-1 sends a new page to its screen a strip at a time, so a page appears line by line, and the phone does it in
  * an instant. To keep the old machines' way of filling the screen, a new page (or a page's new part) is revealed here:
  * the screen cleared, then a text line's worth of rows at a time, each line left to right a few letters at a time,
- * over about half a second. What is already shown carries on live. */
-#define RV_MS 480u
+ * over about a quarter of a second. What is already shown carries on live. */
+#define RV_MS 240u                              /* (a light touch by default; to be a setting with the vintage ones) */
 #define RV_BANDS 15u                            /* 16 rows each: a line of text */
 #define RV_CHUNKS 8u                            /* 30 pixels each: a few letters */
 static uint8_t rv_shown[240u * 240u];
