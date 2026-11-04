@@ -543,7 +543,12 @@ static void mod_apply(void)                     /* E = P, moved by the matrix (a
         E.g[k].mut = m8(P.g[k].mut, MK(k ? D_MUTB : D_MUTA) / 4, 0, 50);
         E.g[k].rule = (uint8_t)(((int32_t)P.g[k].rule + MK(k ? D_RULB : D_RULA) * 2) & 255);   /* (round the wheel: a
                                                                  full source at 63 reaches every rule) */
+#ifdef QUORUM_ANDROID
+        E.g[k].rate = P.g[k].rate > 127u ? P.g[k].rate : m8(P.g[k].rate, MK(k ? D_SPDB : D_SPDA), 0, 127);   /* (up: faster;
+                                                   on the master clock, its division as set) */
+#else
         E.g[k].rate = m8(P.g[k].rate, MK(k ? D_SPDB : D_SPDA), 0, 127);   /* (up: faster) */
+#endif
     }
     for (k = 0; k < NFG; k++) fgmod_v[k] = (int8_t)cl(-MK(D_FG1 + k), -127, 127);   /* (up: faster) */
 #ifdef QUORUM_ANDROID
@@ -698,6 +703,53 @@ static volatile uint32_t dirty_partials = 1;
 static const uint16_t MIDI_DIV[8] = {3, 6, 12, 24, 48, 96, 192, 384};   /* MIDI clocks a step: 1/32 .. 4 bars */
 static const char *const MIDI_DIVN[8] = {"1/32", "1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR"};
 static uint32_t gated(uint32_t i) { uint32_t r; for (r = 0; r < NGS; r++) if (P.gmat[r] >> (GD_GA + i) & 1u) return 1u; return 0u; }
+#ifdef QUORUM_ANDROID
+/* (Android) the master clock: its own, in BPM (P.tempo + 20: 20 .. 275), a pulse every 1/16 note; everything clocked
+ * counts its pulses (the sequencers, the logic, the gate matrix's CLK rows, the envelopes' steps). Each grid runs on
+ * its own clock (RATE 0..127: 0.05 .. 12 Hz) or on the master's, every /n pulses (RATE 128..138: /32 .. /1); grid B
+ * locked to A (LOCK B>A) steps when A does, unless the gate matrix drives it. No MIDI: parked for now. */
+#define BPM_OF(t) (20u + (uint32_t)(t))
+static uint32_t m_acc, t_m, t_hg[2], half_g[2];
+static void grid_go(uint32_t i)                 /* a grid steps; B, locked to A, with it */
+{
+    grid_step(i); dirty_partials = 1;
+    if (i == 0u && P.lock && !gated(1)) grid_step(1);
+}
+static uint32_t grid_free(uint32_t i) { return !gated(i) && !(i == 1u && P.lock); }   /* (on a clock of its own) */
+static void half_tick(void)                     /* the master clock, half a pulse: the CLK rows' squares */
+{
+    uint32_t i, stp;
+    half_n++;
+    if (half_n & 1u) return;
+    stp = half_n >> 1;
+    for (i = 0; i < 2u; i++)
+        if (grid_free(i) && E.g[i].rate > 127u && stp % DIVS[(138u - E.g[i].rate) % 11u] == 0u) grid_go(i);
+}
+static void clock_poll(void)
+{
+    uint8_t st, d1, d2;
+    uint32_t s, d = fm1_ms - t_m, n = 0;
+    while (midi_get(&st, &d1, &d2)) {}          /* (MIDI: parked) */
+    t_m = fm1_ms;
+    if (d > 2000u) d = 0;                       /* (a stall: the clock picks up from here) */
+    m_acc += d * BPM_OF(P.tempo);               /* (a half pulse: 7500 / BPM ms) */
+    while (m_acc >= 7500u && n++ < 8u) { m_acc -= 7500u; half_tick(); }
+    if (m_acc >= 7500u) m_acc = 0;
+    for (s = 0; s < 2u; s++) {                  /* a grid on its own clock */
+        uint32_t r = E.g[s].rate;
+        if (r > 127u || !grid_free(s)) { t_hg[s] = fm1_ms; continue; }
+        if (fm1_ms - t_hg[s] >= Q_GRID_HMS[r]) {
+            t_hg[s] += Q_GRID_HMS[r];
+            if (fm1_ms - t_hg[s] > 2000u) t_hg[s] = fm1_ms;
+            if (!(++half_g[s] & 1u)) grid_go(s);
+        }
+    }
+    for (s = 0; s < 2u; s++)                    /* a gate from the matrix steps a grid (and B with A, locked) */
+        if (gstep_req_v[s] != gstep_seen[s]) { gstep_seen[s] = gstep_req_v[s]; grid_go(s); }
+    for (s = 0; s < 2u; s++)                    /* a hand-held Bow / Breath lets go when its time is up */
+        if (kman_hold_v[s] && (int32_t)(fm1_ms - kman_until[s]) > 0) kman_hold_v[s] = 0;
+}
+#else
 static void half_tick(void)                     /* the master clock (grid A's), half a step: the CLK rows' squares */
 {
     half_n++;
@@ -730,6 +782,7 @@ static void clock_poll(void)                    /* grid A's clock: internal, or 
     for (s = 0; s < 2u; s++)                    /* a hand-held Bow / Breath lets go when its time is up */
         if (kman_hold_v[s] && (int32_t)(fm1_ms - kman_until[s]) > 0) kman_hold_v[s] = 0;
 }
+#endif
 static uint32_t idle_ok;
 static void app_idle(void) { if (idle_ok) clock_poll(); }
 
@@ -1776,7 +1829,7 @@ static uint32_t page_subs(uint32_t pg)
     if (pg == PG_LOGIC) return 4u;
     if (pg == PG_SEQ) return NSEQ + 1u;        /* SEQ 1-3, KEYS (the keyboard sequencer) */
 #ifdef QUORUM_ANDROID
-    if (pg == PG_GLOBAL) return 4u;             /* TUNING, VDU, ENGINE, (Android) VINTAGE */
+    if (pg == PG_GLOBAL) return 5u;             /* TUNING, VDU, ENGINE, (Android) VINTAGE, CLOCK */
 #endif
     if (pg == PG_SPLIT || pg == PG_GLOBAL) return 3u;
     if (pg == PG_FX) return 4u;                 /* PHASER, DELAY, REVERB, ROUTING */
@@ -1844,11 +1897,20 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
     } else if (pg == PG_GRID) {
         gpar_t *g = &P.g[sb & 1u];
         if (!bk) { kn_set(0, "RULE", &g->rule, 0, 255, F_RULE, 1);
+#ifdef QUORUM_ANDROID
+                   kn_set(1, "RATE", &g->rate, 0, 138, F_GRATE, 2);   /* (its own, in Hz; past 127 the master's /32 .. /1) */
+#else
                    kn_set(1, "RATE", (sb & 1u) && P.lock ? &P.g[0].rate : &g->rate, 0, 127, F_GRATE,
                           (!(sb & 1u) || P.lock) && P.clk_midi ? 16u : 2u);   /* (lockstep: B's turns A's; MIDI: a division a step) */
+#endif
                    kn_set(2, "MUTATE", &g->mut, 0, 30, F_MUT, 1); kn_set(3, "SHARE", &P.gmode, 0, NGM - 1, F_GMODE, 1); }
         else { kn_set(0, "RESCUE", &g->rescue, 0, 1, F_ONOFF, 1); kn_set(1, "SEED", &g->dens, 5, 95, F_MUT, 5);
+#ifdef QUORUM_ANDROID
+               kn_set(2, "SHIFT", &g->shift, 0, 31, F_SHIFT, 1); kn_set(3, "B>A", &P.lock, 0, 1, F_ONOFF, 1); }   /* (grid B
+                                                   locked to A) */
+#else
                kn_set(2, "SHIFT", &g->shift, 0, 31, F_SHIFT, 1); kn_set(3, "LOCK", &P.lock, 0, 1, F_ONOFF, 1); }
+#endif
     } else if (pg == PG_STRIKE) {
         kpar_t *k = &P.k[sb & 1u];
         trill_t *t = &P.tr[sb & 1u];
@@ -1947,8 +2009,13 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
             kn_set(6, "CAPACITOR", &aset.cap, 0, 10, F_TEN, 1); kn_set(7, "FLYBACK", &aset.fly, 0, 10, F_TEN, 1);
         }
 #endif
+#ifdef QUORUM_ANDROID
+        else if (sb == 4u) kn_set(0, "BPM", &P.tempo, 0, 255, F_TEMPO, 1);   /* (CLOCK: the master clock) */
+        else kn_set(0, "ENG VER", &P.engver, 1, 2, F_BITS, 1);   /* (no MIDI clock: parked) */
+#else
         else { kn_set(0, "ENG VER", &P.engver, 1, 2, F_BITS, 1); kn_set(1, "CLOCK", &P.clk_midi, 0, 1, F_CLK, 1);
                }
+#endif
     }
 }
 static int32_t kn_get(const kn_t *k) { return k->lo < 0 ? (int32_t)*(int8_t *)k->p : (int32_t)*k->p; }
@@ -1970,9 +2037,17 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_GMODE: s_cat(s, GM_NAME[v % NGM]); break;
     case F_GRATE: {                             /* a grid's clock: steps a second, a MIDI division, or GATE when pinned */
         uint32_t gi = sub & 1u, onA = !gi || P.lock;
+#ifdef QUORUM_ANDROID
+        (void)onA;                              /* (Android: its own in Hz, the master's /n, or LOCK A, GATE) */
+        if (gated(gi)) s_cat(s, "GATE");
+        else if (gi && P.lock) s_cat(s, "LOCK A");
+        else if (v > 127) { s_cat(s, "MAST/"); s_int(s, DIVS[(138 - v) % 11]); }
+        else { s_dec(s, Q_GRID_X100[v & 127], 100u, Q_GRID_X100[v & 127] < 1000u ? 2u : 1u); s_cat(s, "HZ"); }
+#else
         if (gated(gi)) s_cat(s, "GATE");
         else if (onA && P.clk_midi) s_cat(s, MIDI_DIVN[(v >> 4) & 7]);
         else { s_dec(s, Q_GRID_X100[v & 127], 100u, Q_GRID_X100[v & 127] < 1000u ? 2u : 1u); s_cat(s, "/S"); }
+#endif
     } break;
     case F_MUT: s_int(s, v); s_cat(s, "%"); break;
     case F_ONOFF: s_cat(s, v ? "ON" : "OFF"); break;
@@ -2004,7 +2079,11 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_SEMI: s_sdec(s, v, 1u, 0u); s_cat(s, "ST"); break;
     case F_CENT: s_sdec(s, v, 1u, 0u); s_cat(s, "C"); break;
     case F_CLK: s_cat(s, v ? "MIDI" : "INT"); break;
+#ifdef QUORUM_ANDROID
+    case F_TEMPO: s_int(s, (int32_t)BPM_OF(v)); break;   /* (the master clock: BPM) */
+#else
     case F_TEMPO: s_dec(s, Q_TEMPO_X100[v], 100u, 2u); break;
+#endif
     case F_PHOS: { static const char *const PN[NPHOS] = {"GREEN", "AQUA", "AMBER", "WHITE"}; s_cat(s, PN[v % NPHOS]); } break;
     case F_BRIGHT: s_int(s, v); break;
     case F_ONOFF + 100: s_cat(s, v ? "FILTER" : "SUM"); break;
@@ -2100,6 +2179,7 @@ static void header_title(char *s)               /* the header's text before the 
     else if (page == PG_SPLIT) s_cat(s, sub == 0u ? "SPLIT" : sub == 1u ? "PATH A" : "PATH B");
 #ifdef QUORUM_ANDROID
     else if (page == PG_GLOBAL && sub == 3u) s_cat(s, "GLOBAL: VINTAGE");
+    else if (page == PG_GLOBAL && sub == 4u) s_cat(s, "GLOBAL: CLOCK");
 #endif
     else if (page == PG_GLOBAL) s_cat(s, sub == 0u ? "GLOBAL: TUNING" : sub == 1u ? "GLOBAL: VDU" : "GLOBAL: ENGINE");
     else if (page == PG_FX) { static const char *const FN[4] = {"FX: PHASER", "FX: DELAY", "FX: REVERB", "FX: ROUTING"}; s_cat(s, FN[sub & 3u]); }
@@ -2230,7 +2310,11 @@ static void draw_voice(void)
     cv_text(4, 4, &FONT_S, "H1", PH_LO);
     cv_text(236 - 24, 4, &FONT_S, "H64", PH_LO);
     s[0] = 0; s_cat(s, "ROOT "); s_note(s, P.root); s_cat(s, P.anchor ? "  F0 ON" : "  F0 OFF");
+#ifdef QUORUM_ANDROID
+    s_cat(s, "  "); s_int(s, (int32_t)BPM_OF(P.tempo)); s_cat(s, " BPM");
+#else
     s_cat(s, "  CLK "); if (P.clk_midi) s_cat(s, "MIDI"); else { s_dec(s, Q_GRID_X100[E.g[0].rate], 100u, 2u); s_cat(s, "/S"); }
+#endif
     cv_text(4, 126, &FONT_S, s, PH_MID);
 #ifdef QUORUM_ANDROID
     s[0] = 0; s_cat(s, "LIVE "); s_int(s, (int32_t)live_v);   /* (the CPU: on Global: Engine only) */
@@ -2267,14 +2351,21 @@ static void draw_grid(void)
     s[0] = 0; s_cat(s, sub ? "B" : "A"); s_cat(s, " POP "); s_int(s, (int32_t)popc(g->row)); s_cat(s, "/32");
     cv_text(4, 144, &FONT_S, s, PH_MID);
     if (g->rescue_t && fm1_ms - g->rescue_t < 900u) { s[0] = 0; s_cat(s, "RESCUE "); s_cat(s, g->why); cv_text(236 - text_w(&FONT_S, s), 144, &FONT_S, s, PH_HI); }
+#ifdef QUORUM_ANDROID
+    else {                                      /* (Android) LOCK B>A lit with B locked to A (unless gates drive B);
+                                                   GATE when the gate matrix drives this grid */
+        int32_t w = text_w(&FONT_S, "LOCK B>A"), x = 236 - w - 14;
+        if (gated(sub & 1u)) { x -= 64; lamp(x + w + 14 + 4, 147, 1); cv_text(x + w + 32, 144, &FONT_S, "GATE", PH_HI); }
+        lamp(x, 147, P.lock); cv_text(x + 14, 144, &FONT_S, "LOCK B>A", P.lock && !gated(1) ? PH_HI : PH_LO);
+        tgt_add(x - 4, BODY_Y + 142, w + 18, 18, T_CMD, C_LOCK);
+    }
+#else
     else {                                      /* the clock: LOCK lit in lockstep; GATE when the gate matrix drives it */
         int32_t x = 236 - 4 * 8 - 14;
         if (gated(sub & 1u)) { x = 236 - 4 * 8 - 14 - 64; lamp(x + 64, 147, 1); cv_text(x + 78, 144, &FONT_S, "GATE", PH_HI); }
         lamp(x, 147, P.lock); cv_text(x + 14, 144, &FONT_S, "LOCK", P.lock ? PH_HI : PH_LO);
-#ifdef QUORUM_ANDROID
-        tgt_add(x - 4, BODY_Y + 142, 52, 18, T_CMD, C_LOCK);
-#endif
     }
+#endif
     knob_row(0);
 #ifdef QUORUM_ANDROID
     CMDS(C_BANK, C_SEED);
@@ -3106,6 +3197,54 @@ static void draw_vintage(void)                  /* (Android) GLOBAL: VINTAGE: th
     cv_out(BODY_Y);
 }
 #endif
+#ifdef QUORUM_ANDROID
+static void clk_desc(char *s, uint32_t v, uint32_t mast)   /* a clock setting: v <= 10 the master's /DIVS (mast: v as the
+                                                   index, else 10 - v), else its own (11..138) */
+{
+    if (v <= 10u) { s_cat(s, "MAST/"); s_int(s, DIVS[mast ? v : 10u - v]); }
+    else { uint32_t x = Q_GRID_X100[(v - 11u) & 127u]; s_cat(s, "OWN "); s_dec(s, x, 100u, x < 1000u ? 2u : 1u); s_cat(s, "HZ"); }
+}
+static void draw_clock(void)                    /* (Android) GLOBAL: CLOCK: the master clock, in BPM, a pulse each 1/16;
+                                                   the bar it is in; what runs on it */
+{
+    static const char *const SQN[NSEQ] = {"SEQ 1", "SEQ 2", "SEQ 3"};
+    char s[40];
+    uint32_t i, stp = half_n >> 1;
+    cv_begin(240, BODY_H, PH_BG);
+    s[0] = 0; s_cat(s, "MASTER "); s_int(s, (int32_t)BPM_OF(P.tempo)); s_cat(s, " BPM");
+    cv_text(4, 2, &FONT_S, s, PH_HI);
+    cv_text(4, 20, &FONT_S, "A PULSE EVERY 1/16", PH_LO);
+    for (i = 0; i < 16u; i++) {                 /* the bar: sixteen pulses, the beats taller */
+        int32_t x = 8 + (int32_t)i * 14, h = i % 4u ? 6 : 10;
+        cv_rect(x, 50 - h, 10, h, i == stp % 16u ? PH_HI : i % 4u ? PH_SEL : PH_LO);
+    }
+    cv_rect(0, 56, 240, 1, PH_LO);
+    for (i = 0; i < 2u; i++) {                  /* what runs on it: the grids */
+        int32_t y = 60 + (int32_t)i * 16;
+        uint32_t r = P.g[i].rate;
+        cv_text(4, y, &FONT_S, i ? "GRID B" : "GRID A", PH_LO);
+        s[0] = 0;
+        if (gated(i)) s_cat(s, "GATE MATRIX");
+        else if (i && P.lock) s_cat(s, "LOCKED TO A");
+        else if (r > 127u) { s_cat(s, "MAST/"); s_int(s, DIVS[(138u - r) % 11u]); }
+        else { s_cat(s, "OWN "); s_dec(s, Q_GRID_X100[r], 100u, Q_GRID_X100[r] < 1000u ? 2u : 1u); s_cat(s, "HZ"); }
+        cv_text(92, y, &FONT_S, s, r > 127u && !gated(i) && !(i && P.lock) ? PH_HI : PH_MID);
+    }
+    for (i = 0; i < NSEQ; i++) {                /* the slew sequencers */
+        int32_t y = 92 + (int32_t)i * 16;
+        cv_text(4, y, &FONT_S, SQN[i], PH_LO);
+        s[0] = 0; clk_desc(s, P.seq[i].div, 1u);
+        cv_text(92, y, &FONT_S, s, P.seq[i].div <= 10u ? PH_HI : PH_MID);
+    }
+    cv_text(4, 140, &FONT_S, "KEY SEQ", PH_LO);
+    s[0] = 0;
+    if (P.ks.clk == KS_CLK_GATE) s_cat(s, "GATE MATRIX"); else clk_desc(s, P.ks.clk, 0u);
+    cv_text(92, 140, &FONT_S, s, P.ks.clk <= 10u ? PH_HI : PH_MID);
+    knob_row(0);
+    CMDS(C_TAP);
+    cv_out(BODY_Y);
+}
+#endif
 static void draw_engine(void)                   /* GLOBAL: ENGINE: the hardware revision, the clock, the CPU */
 {
     char s[40];
@@ -3376,7 +3515,12 @@ static void patch_clean(void)                   /* a loaded patch's values in ra
     P.tun %= NTUN; if (P.scl >= TUN_NSCL[P.tun]) P.scl = 0; P.sroot %= 12u;
     for (k = 0; k < 2u; k++) {
         gpar_t *g = &P.g[k]; kpar_t *q = &P.k[k]; ppar_t *t = &P.pth[k];
-        g->rate &= 127u; g->mut = (uint8_t)cl(g->mut, 0, 30); g->rescue &= 1u; g->dens = (uint8_t)cl(g->dens, 5, 95); g->shift &= 31u;
+#ifdef QUORUM_ANDROID
+        if (g->rate > 138u) g->rate &= 127u;    /* (128..138: on the master clock) */
+#else
+        g->rate &= 127u;
+#endif
+        g->mut = (uint8_t)cl(g->mut, 0, 30); g->rescue &= 1u; g->dens = (uint8_t)cl(g->dens, 5, 95); g->shift &= 31u;
         q->mode &= 3u; q->part = (uint8_t)cl(q->part, 1, 32); q->vel &= 127u; q->level &= 127u; q->shape &= 127u;
         q->decay &= 127u; q->fall &= 127u; q->series %= 3u; q->filt &= 1u;
         t->mode &= 3u; t->freq &= 127u; t->res &= 127u; t->bw &= 127u; t->level &= 127u; t->pan &= 127u;
@@ -3449,10 +3593,17 @@ static void randomize(void)
     P.gmode = (uint8_t)rnd(NGM);
     if (!rnd_wild && P.gmode == GM_AND) P.gmode = GM_OR;   /* (the drone: never too sparse) */
     P.lock = rnd_wild ? rnd(3) == 0u : rnd(2) == 0u;
+#ifdef QUORUM_ANDROID
+    P.tempo = (uint8_t)(rnd_wild ? rnd_in(70, 150) - 20 : rnd_in(20, 60) - 20);   /* (the master clock: BPM) */
+#endif
     for (k = 0; k < 2u; k++) {
         gpar_t *g = &P.g[k]; ppar_t *t = &P.pth[k];
         g->rule = RULES[rnd(sizeof RULES)];
         g->rate = (uint8_t)(rnd_wild ? rnd_in(45, 110) : rnd_in(10, 58));   /* drone: a step every 1.5 .. 10 s */
+#ifdef QUORUM_ANDROID
+        if (rnd_wild ? rnd(2) == 0u : rnd(4) == 0u)   /* (now and then on the master clock: /1 .. /8 busy, /12 .. /32 a drone) */
+            g->rate = (uint8_t)(138u - (rnd_wild ? rnd(8) : 8u + rnd(3)));
+#endif
         g->mut = (uint8_t)(rnd(2) ? 0 : rnd_in(1, rnd_wild ? 12 : 4));
         g->rescue = 1; g->dens = (uint8_t)rnd_in(30, 65); g->shift = (uint8_t)(rnd(3) ? 0 : rnd(32));
         if (rnd_wild) { t->mode = (uint8_t)(rnd(5) ? 1u + rnd(3) : 0u); t->freq = (uint8_t)rnd_in(20, 110); t->res = (uint8_t)rnd(110); }
@@ -3561,7 +3712,60 @@ static void randomize(void)
             pin(S_SEQ(k), ANY[rnd(sizeof ANY)], rnd_in(12, 45));
         }
         if (!rnd(4)) P.gmat[GS_GEN + rnd(NGEN)] |= (uint16_t)(1u << (GD_GA + rnd(2)));   /* now and then: a grid on a gate */
+#ifdef QUORUM_ANDROID
+        for (k = 0; k < NEG; k++) {             /* 6a (Android): the drawn envelopes, redrawn at random: cycling, or fired */
+            egp_t *e = &P.eg[k];
+            uint32_t np, i, x = 0;
+            if (rnd(3) == 0u) continue;         /* (a third keep INIT's) */
+            memset(e, 0, sizeof *e);
+            np = (uint32_t)rnd_in(3, 9);
+            for (i = 0; i < np; i++) {          /* (across the whole grid: 0, then the rest spread to 32, a little shaken) */
+                uint32_t want = i * 32u / (np - 1u);
+                if (i && i + 1u < np) want = (uint32_t)cl((int32_t)want + rnd_in(-2, 2), (int32_t)x + 1, 31);
+                if (i && want <= x) want = x + 1u;
+                x = want;
+                e->pt[i].x = (uint8_t)x; e->pt[i].y = (uint8_t)rnd(17); e->pt[i].crv = (uint8_t)rnd(5);
+                e->pt[i].gt = rnd(4) == 0u;
+            }
+            e->n = (uint8_t)i;
+            if (rnd(2)) { e->mode = EGM_CYCLE; e->len = (uint8_t)(rnd(2) ? rnd_in(8, 17) : rnd_in(EG_NFREE + 3, EG_NLEN - 1)); }
+            else {                              /* fired by the logic, the clock, the sequencers */
+                e->mode = (uint8_t)(rnd(2) ? EGM_TRIG : EGM_GATE); e->len = (uint8_t)rnd_in(2, 12);
+                P.gmat[rnd(2) ? GS_GEN + rnd(NGEN) : rnd(2) ? GS_CLK + rnd(5) : GS_SEQ + rnd(NSEQ)] |= 1u << (GD_EG1 + k);
+            }
+            e->bip = rnd(4) == 0u;
+            pin(S_EG(k), ANY[rnd(sizeof ANY)], rnd_in(15, 50));
+            if (rnd(2)) pin(S_EG(k), ANY[rnd(sizeof ANY)], rnd_in(10, 35));
+        }
+        if (rnd(2)) {                           /* 6b (Android): the key sequencer: notes at random, an odd length now and
+                                                   then, both paths on it, in another tuning */
+            kseq_t *q = &P.ks;
+            uint32_t i, steps = (uint32_t)rnd_in(3, KS_MAX), at = 0;
+            memset(q->note, 0, sizeof q->note); memset(q->len, 0, sizeof q->len);
+            q->steps = (uint8_t)steps; q->dir = (uint8_t)(rnd(3) ? 0u : 1u + rnd(2));
+            q->clk = (uint8_t)(rnd(4) ? 10u - (uint32_t)rnd_in(1, 7) : (uint32_t)rnd_in(40, 110));   /* (the master /2 .. /8,
+                                                   or its own) */
+            while (at < steps) {
+                uint32_t len = (uint32_t)rnd_in(1, 3);
+                if (len > steps - at) len = steps - at;
+                if (at == 0u || rnd(10) < 6u) {
+                    static const int8_t IV[] = {0, 0, 2, 3, 5, 7, 7, 10, 12, 12, -5, 14, 19, -12};
+                    q->note[at] = (uint8_t)cl((int32_t)P.root + IV[rnd(sizeof IV)] + (rnd(5) ? 0 : rnd_in(-2, 2)), 12, 96);
+                    q->len[at] = (uint8_t)len;
+                }
+                at += len;
+            }
+            q->run = 1; ks_run_was = 0;         /* (it starts from the new root) */
+            P.level = 84;                       /* (a little down: the strikes on its notes stack up) */
+            P.kbd[0] = P.kbd[1] = 1;
+            P.tun = (uint8_t)(1u + rnd(NTUN - 1u)); P.scl = (uint8_t)rnd(TUN_NSCL[P.tun]);
+            P.qon[0] = P.qon[1] = 1;
+            if (rnd(2)) P.gmat[GS_KSQ] |= (uint16_t)(1u << (GD_K1 + rnd(2)));   /* (now and then a strike on its notes) */
+        }
+        for (n = (uint32_t)rnd_in(9, 18); n; n--) {   /* 6: the rest: anything into the timbre and the modulators */
+#else
         for (n = (uint32_t)rnd_in(6, 14); n; n--) {   /* 6: the rest: anything into the timbre and the modulators */
+#endif
             uint32_t dst = ANY[rnd(sizeof ANY)];
             pin(rnd(NSRC), dst, dst == D_STR ? rnd_in(4, 15) : rnd_in(12, 50));
         }
@@ -3680,7 +3884,8 @@ static int patch_save(uint32_t slot)            /* 1..16 */
     for (k = 0; k < sizeof pbank[j].raw; k++) pbank[j].raw[k] = 0;
     q->tag = PATCH_TAG; q->ver = 1; q->used = 1;
 #ifdef QUORUM_ANDROID
-    q->ver = 3;                                 /* (3: the phone's tunings, SUPERJUST second) */
+    q->ver = 4;                                 /* (3: the phone's tunings, SUPERJUST second; 4: the master clock in
+                                                   BPM, grids on it past RATE 127) */
     for (k = 0; k < NGS; k++) q->gm_hi[k] = (uint16_t)(P.gmat[k] >> 16);
     for (k = 0; k < NEG; k++) q->eg[k] = P.eg[k];
     for (k = 0; k < NSEQ; k++) q->sq_stop[k] = P.sq_stop[k];
@@ -3718,6 +3923,12 @@ static int patch_load(uint32_t slot)            /* 0 = INIT, P_RANDOM = roll the
     for (k = 0; k < NGS && k < q->ngs && k < 32u; k++) P.gmat[k] = q->gm[k];
 #ifdef QUORUM_ANDROID
     if (q->ver < 3u && P.tun >= 1u && P.tun < NTUN - 1u) P.tun++;   /* (older: no SUPERJUST, which came in after 12-TET) */
+    if (q->ver < 4u) {                          /* (older: the master clock was grid A's own; now it's BPM, a pulse a 1/16:
+                                                   the same pace, as near as the range allows; grid A keeps its rate) */
+        uint32_t bpm = (uint32_t)Q_GRID_X100[P.g[0].rate & 127u] * 15u / 100u;
+        P.tempo = (uint8_t)(cl((int32_t)bpm, 20, 275) - 20);
+        P.g[0].rate &= 127u; P.g[1].rate &= 127u;
+    }
     if (q->ver >= 2u) {                         /* (an older patch: INIT's envelopes, nothing pinned past 16) */
         for (k = 0; k < NGS && k < q->ngs && k < 32u; k++) P.gmat[k] |= (uint32_t)q->gm_hi[k] << 16;
         for (k = 0; k < NEG; k++) P.eg[k] = q->eg[k];
@@ -3876,6 +4087,10 @@ static void app_main(void)
 #endif
     P.engver = gset.eng == 1u ? 1u : 2u;        /* (the engine and the clock: the machine's, kept with the VDU) */
     P.clk_midi = gset.pad & 1u;
+#ifdef QUORUM_ANDROID
+    P.clk_midi = 0;                             /* (no MIDI clock: parked; the master clock is BPM) */
+    P.tempo = 100u;                             /* (120 BPM) */
+#endif
 #ifdef QUORUM_ANDROID
     eg_defaults(&P);                            /* (the envelopes: INIT's, and the power-on drone's) */
 #endif
@@ -4109,6 +4324,7 @@ static void app_main(void)
                     pmsg = patch_load(pcur) != 0 ? "LOAD FAILED" : pcur == P_RANDOM ? "ROLLED" : "LOADED";
 #ifdef QUORUM_ANDROID
                     if (pcur != P_RANDOM && pcur != 0u) vt_disk(0u, 1u);   /* (vintage: the drive reads it) */
+                    if (pcur == P_RANDOM || pcur == 0u) vt_rolled();   /* (a roll, INIT: the drive heard, as a load) */
                     }
 #endif
                     pconf = PC_NONE; t_msg = fm1_ms;
@@ -4207,7 +4423,8 @@ static void app_main(void)
             case PG_MOD: draw_mod(); break;
             case PG_SPLIT: draw_split(); break;
 #ifdef QUORUM_ANDROID
-            case PG_GLOBAL: if (sub == 0u) draw_tuning(); else if (sub == 1u) draw_vdu(); else if (sub == 2u) draw_engine(); else draw_vintage(); break;
+            case PG_GLOBAL: if (sub == 0u) draw_tuning(); else if (sub == 1u) draw_vdu(); else if (sub == 2u) draw_engine();
+                            else if (sub == 3u) draw_vintage(); else draw_clock(); break;
 #else
             case PG_GLOBAL: if (sub == 0u) draw_tuning(); else if (sub == 1u) draw_vdu(); else draw_engine(); break;
 #endif

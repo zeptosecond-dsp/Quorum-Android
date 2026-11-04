@@ -409,6 +409,14 @@ static int vt_fail_rw(uint32_t write)           /* a save or load: the disk fail
     vt_start(write, 1u, 2u);
     return 1;
 }
+static void vt_rolled(void)                     /* a patch rolled (RAND): as a load, the drive heard; vintage off, a short
+                                                   access (DISKSAVE's sound, the music aside a moment) */
+{
+    if (aset.vint && !vt_busy) { vt_start(0u, 1u, 0u); return; }   /* (a new patch: nothing running to break into, its
+                                                   key sequencer just starting) */
+    if (!aset.drive || !aset.vint) vt_kick = 3u;
+    vt_cf_on = 1; vt_cf_t0 = fm1_ms; mute = 1;
+}
 static void vt_saved(void)                      /* a patch saved: vintage, the whole access; else just its sound */
 {
     if (aset.vint) { vt_disk(1u, 1u); if (vt_busy) return; }
@@ -503,7 +511,8 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     case C_NSPACE: s_cat(s, "SPACE"); break;
     case C_NOK: s_cat(s, "OK"); break;
     case C_NCANCEL: s_cat(s, "CANCEL"); break;
-    case C_LOCK: s_cat(s, "LOCK"); break;
+    case C_LOCK: s_cat(s, "LOCK B>A"); break;
+    case C_TAP: s_cat(s, "TAP TEMPO"); break;
     case C_BANK: s_cat(s, "BANK "); s_int(s, (int32_t)bank + 1); s_cat(s, "/"); s_int(s, (int32_t)page_banks(page, sub)); break;
     default: break;
     }
@@ -594,6 +603,17 @@ static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the
         break;
     }         /* (the phone's keyboard) */
     case C_INIT: if (pcur != 0u) { pcur = 0; pconf = PC_NONE; } *b |= 1u << BTN_SEL; pmsg = ""; break;   /* (twice: INIT, LOAD?) */
+    case C_TAP: {                               /* tap tempo: the beat (a quarter) from the last few taps */
+        static uint32_t t_last, iv[3], ni;
+        uint32_t d = fm1_ms - t_last, k, sum = 0;
+        t_last = fm1_ms;
+        if (d > 3000u || d < 200u) { ni = 0; break; }   /* (a first tap, or too slow / fast: start again) */
+        iv[ni % 3u] = d; ni++;
+        for (k = 0; k < (ni < 3u ? ni : 3u); k++) sum += iv[k];
+        k = 60000u * (ni < 3u ? ni : 3u) / sum;
+        P.tempo = (uint8_t)(cl((int32_t)k, 20, 275) - 20);
+        break;
+    }
     case C_RAND: pcur = P_RANDOM; pconf = PC_LOAD; *b |= 1u << BTN_SEL; break;   /* (a new roll each tap) */            /* (what PLAY did on this page) */
     case C_F0: case C_LOAD: case C_BANK: *b |= 1u << BTN_SEL; break;   /* (SEL: a page's banks, VOICE's F0, the Disk's load) */
     case C_SAVE: if (pcur >= 1u && pcur <= NPATCH && !pused[pcur]) { nm_start(pcur, 1u); break; }   /* (a new file: its name first) */

@@ -14,7 +14,7 @@ enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT, T_TAB, T_FGSHAPE, T_FGPEAK,
 enum { C_SEED, C_FIRE, C_FILT, C_ROUTE, C_FREE, C_F0, C_ROOT, C_N, C_KEYS, C_GATE, C_REC, C_AUTO, C_CLEAR, C_NOFB,
        C_PHSLOW, C_DCLEAR, C_FREEZE, C_RVRATE, C_PATHA, C_PATHB, C_QUANT, C_RESETMAX, C_LOAD, C_SAVE, C_NAME, C_NLEFT,
        C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, C_LOCK, C_SQRUN, C_DEGAUSS, C_INIT, C_RAND,
-       C_TUNDN, C_TUNUP, C_SCLDN, C_SCLUP, C_ROOTDN, C_ROOTUP, NCMD };
+       C_TUNDN, C_TUNUP, C_SCLDN, C_SCLUP, C_ROOTDN, C_ROOTUP, C_TAP, NCMD };
 static int32_t kn_old;                         /* a value as it was before the finger moved it (VOICE ROOT: the held
                                                    paths move with it) */   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
                                                    page); a Disk file (a = its slot); a crosspoint of the mod or gate
@@ -93,6 +93,7 @@ static _Atomic uint32_t pn_flip[2];             /* (the lights over the keyboard
 static volatile uint32_t vt_kick;                /* a recording to start now, the page not frozen (1..3, as vt_smp) */
 static uint32_t vt_cf_t0, vt_cf_on;              /* (the save's confirmation: the sound faded a moment) */
 static void vt_saved(void);                    /* (android_touch.c) a patch saved: the drive heard, vintage or not */
+static void vt_rolled(void);                   /* (android_touch.c) a patch rolled (RAND): the drive heard, as a load */
 static int vt_fail_rw(uint32_t write);                   /* (android_touch.c) a save or load about to happen: 1 if the disk fails it
                                                    (DISK: OK rarely, BAD often; the access and the error already begun) */
 static uint32_t vt_rep, vt_rep_smp, vt_gap;     /* (the drive trying again: so many more plays of vt_rep_smp, a pause between) */
