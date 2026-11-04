@@ -13,7 +13,7 @@ import android.view.View
  * The keyboard under the screen, dressed as Buchla's Electric Music Box touch keyboard: pale ribbed plates on a navy
  * panel, each raised key ringed in red, a red band along the top. On the band: STRIKE 1 at the far left, the split
  * the keys play (A, A+B, B) in the middle, STRIKE 2 at the far right, all plates like the keys.
- * The 27 keys are the FM-1's (F3 .. G5) with their lights (the grid's cells; the top two are strike 1 and 2).
+ * The 27 keys are the FM-1's (F3 .. G5), plain plates: the grids show in the lights above.
  * Above it all, on black under a thin navy rule: each grid's row now as square red lights, A on the left, B on the
  * right; touched (or swept) they turn over, as the cells on the Grids page.
  */
@@ -116,8 +116,6 @@ class PanelView(context: Context) : View(context) {
                 canvas.drawRect(x, y, x + s, y + s, fill)
             }
         }
-        val leds = Native.leds()
-        val glow = Native.glow()
         val route = Native.routeGet()
         val lit = Native.strikeLit()
 
@@ -149,12 +147,6 @@ class PanelView(context: Context) : View(context) {
                 canvas.drawRect(k.r.left - 3f * d, k.r.top, k.r.right + 3f * d, k.r.bottom + 3f * d, fill)
             }
             ribbed(canvas, k.r, if (down) platePress else plate)
-            val id = 14 + k.bit
-            val on = if ((leds shr id) and 1L != 0L) 2 else if ((glow shr id) and 1L != 0L) 1 else 0
-            if (on > 0 && !down) {              // the key's light
-                fill.color = if (on == 2) red else 0x99C23A4C.toInt()
-                canvas.drawCircle(k.r.centerX(), k.r.bottom - k.r.width() * 0.45f, k.r.width() * 0.16f, fill)
-            }
         }
         postInvalidateOnAnimation()
     }

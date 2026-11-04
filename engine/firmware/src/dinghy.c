@@ -2112,11 +2112,7 @@ static void draw_header(void)
     cv_begin(240, BODY_Y, PH_BG);
     cv_text(4, 2, &FONT_S, s, PH_HI);
 #ifdef QUORUM_ANDROID
-    {                                           /* (Android) the drive's light, where the FM-1's battery is */
-        cv_rect(212, 6, 16, 1, PH_MID); cv_rect(212, 12, 16, 1, PH_MID); cv_rect(212, 6, 1, 7, PH_MID); cv_rect(227, 6, 1, 7, PH_MID);
-        if (vt_busy && (fm1_ms / 90u) % 3u) cv_rect(214, 8, 12, 3, PH_HI);
-    }
-    if (0)
+    if (0)                                      /* (Android) no battery: the header is the page's alone */
 #endif
     {
         uint32_t n = batt_bars(), k;
