@@ -382,6 +382,12 @@ static void vt_disk(uint32_t write, uint32_t patch)
     vt_busy = 1;
     mute = 1;                                   /* (the engine fades out, as for the FM-1's flash; the drive is heard) */
 }
+static void vt_saved(void)                      /* a patch saved: vintage, the whole access; else just its sound */
+{
+    if (aset.vint) { vt_disk(1u, 1u); if (vt_busy) return; }
+    if (!aset.drive || !aset.vint) vt_kick = 3u;   /* (DISKSAVE) */
+    if (vt_safe()) { vt_cf_on = 1; vt_cf_t0 = fm1_ms; mute = 1; }   /* (the music aside a moment: never over MIDI or the keys) */
+}
 static const char *vt_message(void)
 {
     static char m[32];
@@ -402,6 +408,7 @@ static void vt_poll(void)                       /* each pass: a page changed (by
         vp = page; vs = sub;
     }
     if (vt_busy && fm1_ms - vt_t0 >= vt_len) { vt_busy = 0; mute = 0; hdr_force = 1; }
+    if (vt_cf_on && fm1_ms - vt_cf_t0 >= 1400u) { vt_cf_on = 0; if (!vt_busy) mute = 0; }   /* (DISKSAVE's length) */
 }
 
 /* ---- the command words */

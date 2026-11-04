@@ -4072,7 +4072,7 @@ static void app_main(void)
                 else if (pconf == PC_SAVE || !pused[pcur]) {
                     pmsg = patch_save(pcur) == 0 ? "SAVED" : "SAVE FAILED";
 #ifdef QUORUM_ANDROID
-                    vt_disk(1u, 1u);                /* (vintage: the drive writes it, for a while) */
+                    if (*pmsg == 'S' && pmsg[1] == 'A' && pmsg[4] == 'D') vt_saved();   /* (the drive heard: saved) */
 #endif
                     pconf = PC_NONE; t_msg = fm1_ms;
                 } else pconf = PC_SAVE;

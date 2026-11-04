@@ -32,6 +32,11 @@ def mos(n, gen, lo, hi, period=None):
     return [b + p for p in range(0, n, period) for b in base]
 
 
+def steps(*s):
+    """a scale given as its steps (they sum to the period): the degrees"""
+    return [sum(s[:i]) for i in range(len(s))]
+
+
 def near(step, r):
     """the step of an equal tuning (cents a step) nearest a ratio"""
     return round(cents(r) / step)
@@ -79,7 +84,15 @@ TUNINGS = [   # (name, period in cents, steps in cents, scales)
                                          ("PORCUPINE 7", mos(22, 3, -3, 3)), ("PORCUPINE 8", mos(22, 3, -3, 4)),
                                          ("ORWELL 9", mos(22, 5, -4, 4)),
                                          ("HEDGEHOG 6", mos(22, 3, -1, 1, 11)), ("HEDGEHOG 8", mos(22, 3, -1, 2, 11)),
-                                         ("PAJARA 10", mos(22, 2, -2, 2, 11))]),
+                                         ("PAJARA 10", mos(22, 2, -2, 2, 11)),
+                                         ("CHROM TETRA 1", steps(2, 2, 5, 4, 2, 2, 5)),
+                                         ("CHROM TETRA 2", steps(5, 2, 2, 4, 5, 2, 2)),
+                                         ("CHROM TETRA 3", steps(2, 5, 2, 4, 2, 5, 2)),
+                                         ("ENHAR TETRA 1", steps(1, 1, 7, 4, 1, 1, 7)),
+                                         ("ENHAR TETRA 2", steps(7, 1, 1, 4, 7, 1, 1)),
+                                         ("ENHAR TETRA 3", steps(1, 7, 1, 4, 1, 7, 1)),
+                                         ("ENHAR TRI 1", steps(2, 7, 4, 2, 7)),
+                                         ("ENHAR TRI 2", steps(7, 2, 4, 7, 2))]),
     ("24-EDO", 1200, edo(24), ALL(24) + [("MAQAM RAST", [0, 4, 7, 10, 14, 18, 21]),
                                          ("MAQAM BAYATI", [0, 3, 6, 10, 14, 16, 20]),
                                          ("MAQAM SABA", [0, 3, 6, 8, 14, 16, 20])]),

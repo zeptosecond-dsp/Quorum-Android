@@ -231,8 +231,9 @@ static void vt_audio(int32_t *blk, uint32_t n)
     uint32_t i, k;
     int on = vt_busy && !vt_smp, hdd = 1;      /* (the synthesised drive: the hard disk; the floppy is recorded) */
     if (vt_busy && !vt_prev && vt_smp) { vt_play = vt_smp; vt_pos = 0; }   /* the floppy: its recording, from the top */
+    if (vt_kick) { vt_play = vt_kick; vt_pos = 0; vt_kick = 0; }   /* (a save heard, vintage mode or not) */
     if (!vt_busy) vt_prev = 0;
-    if (!on && !vt_play && vt_motor < 0.001f && dg_start_ms == dg_seen && dg_amp < 0.001f) return;
+    if (!on && !vt_play && !vt_kick && vt_motor < 0.001f && dg_start_ms == dg_seen && dg_amp < 0.001f) return;
     if (on && !vt_prev) { vt_rs ^= vt_seed; vt_nstep = 0; vt_wait = 2000u; }   /* the hard disk spins up */
     if (vt_busy) vt_prev = 1;
     if (vt_play) {                              /* (the recording plays out whole, even after the page has moved on) */
