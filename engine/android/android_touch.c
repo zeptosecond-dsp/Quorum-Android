@@ -798,6 +798,7 @@ static void nav_set(const tgt_t *t)
     nav_r[0] = t->x; nav_r[1] = t->y; nav_r[2] = t->w; nav_r[3] = t->h;
     nav_hdr = t->kind >= 0xF0u ? t->kind - 0xEFu : 0u;
     nav_cx = nav_fx * 16 + 8; nav_cy = nav_fy * 16 + 8;
+    if (page == PG_INDEX && t->kind == T_PAGE) icur = t->a;   /* (the Index: its own highlight and cursor are the box) */
 }
 static void nav_poll(void)                      /* each pass: the box kept on something; the arrows' presses */
 {
@@ -818,6 +819,7 @@ static void nav_poll(void)                      /* each pass: the box kept on so
             TB.acc = (float)v;
         }
     }
+    if (shown_page != page || shown_sub != sub) return;   /* (a page not drawn yet: its targets aren't there) */
     n = nav_parts(c);
     if (!n) return;
     if (page != nav_pg || sub != nav_sb || nav_fx < 0) {   /* a new page: the box on its first thing */
@@ -826,8 +828,11 @@ static void nav_poll(void)                      /* each pass: the box kept on so
         nav_pg = page; nav_sb = sub;
         for (i = 0; i < n && (keep ? c[i].kind != keep : c[i].kind >= 0xF0u); i++) {}
         if (keep && i >= n) for (i = 0; i < n && c[i].kind >= 0xF0u; i++) {}
+        if (page == PG_INDEX) for (i = 0; i < n && !(c[i].kind == T_PAGE && c[i].a == icur); i++) {}   /* (its cursor's row) */
         nav_set(&c[i < n ? i : 0]);
     }
+    if (page == PG_INDEX)                       /* (the Index: the box where its cursor is) */
+        for (i = 0; i < n; i++) if (c[i].kind == T_PAGE && c[i].a == icur) { nav_fx = c[i].x + c[i].w / 2; nav_fy = c[i].y + c[i].h / 2; break; }
     best = -1; bs = 0x7FFFFFFF;                 /* kept on what is there now (the page redrawn, a list scrolled) */
     for (i = 0; i < n; i++) {
         int32_t cx = c[i].x + c[i].w / 2, cy = c[i].y + c[i].h / 2, sc;
@@ -839,7 +844,8 @@ static void nav_poll(void)                      /* each pass: the box kept on so
     for (d = 0; d < 4u; d++) {
         uint32_t k = atomic_exchange(&nav_q[d], 0u);
         while (k--) {
-            if (!nav_on) { nav_on = 1; continue; }   /* (the first press: the box shown where it is) */
+            if (!nav_on) { nav_on = 1; if (page != PG_INDEX || nav_hdr) continue; }   /* (the first press: the box shown
+                                                   where it is; the Index's highlight is always shown: it moves) */
             best = -1; bs = 0x7FFFFFFF;
             for (i = 0; i < n; i++) {           /* the nearest that way: along it, and not far off to the side */
                 int32_t cx = c[i].x + c[i].w / 2, cy = c[i].y + c[i].h / 2, along, side, sc;
@@ -863,7 +869,7 @@ void quorum_nav(int32_t d) { atomic_fetch_add(&nav_q[d & 3], 1u); }
 void quorum_nav_select(void)
 {
     int32_t x = nav_cx, y = nav_cy;
-    if (!nav_on || x < 0) { nav_on = 1; return; }
+    if (x < 0 || (!nav_on && page != PG_INDEX)) { nav_on = 1; return; }   /* (the Index: its cursor is always shown) */
     q_touch_put(0, x, y); q_touch_put(2, x, y);
 }
 /* the slider: the open value's place (0..10000), or -1 (no value open); set it */
@@ -983,7 +989,7 @@ static void touch_draw(void)                    /* on the body's canvas (y from 
             for (j = 0; j <= st; j++) cv_pset(x0 + (st ? (x1 - x0) * j / st : 0), y0 + (st ? (y1 - y0) * j / st : 0), PH_LO);
         }
     }
-    if (nav_on && nav_fx >= 0 && !nav_hdr && !(TB.open && TB.pg == page && TB.sb == sub)) {   /* the arrows' box: corners */
+    if (nav_on && nav_fx >= 0 && !nav_hdr && page != PG_INDEX && !(TB.open && TB.pg == page && TB.sb == sub)) {   /* the arrows' box: corners */
         int32_t x0 = nav_r[0] - 1, y0 = nav_r[1] - BODY_Y - 1, x1 = nav_r[0] + nav_r[2], y1 = nav_r[1] + nav_r[3] - BODY_Y, l = 5;
         if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > 239) x1 = 239; if (y1 > BODY_H - 1) y1 = BODY_H - 1;
         cv_rect(x0, y0, l, 1, PH_HI); cv_rect(x0, y0, 1, l, PH_HI); cv_rect(x1 - l + 1, y0, l, 1, PH_HI); cv_rect(x1, y0, 1, l, PH_HI);

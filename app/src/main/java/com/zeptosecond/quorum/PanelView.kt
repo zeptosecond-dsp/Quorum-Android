@@ -15,8 +15,9 @@ import android.view.View
  * panel, each raised key ringed in red, a red band along the top. On the band: STRIKE 1 at the far left, the split
  * the keys play (A, A+B, B) in the middle, STRIKE 2 at the far right, all plates like the keys. Over the rule, above
  * STRIKE 2, VINTAGE: the disk and the tube's faults all on or all off at once (off: a clean screen to set them from).
- * Over the rule at the left, the arrows and SELECT: a box moved between what can be touched on the screen, SELECT a tap
- * on it (for when the tube is too far gone to aim at); a value opened, a slider over them sets it.
+ * Over the rule at the left, the arrows and SELECT as a cross (SELECT the square in the middle): a box moved between
+ * what can be touched on the screen, SELECT a tap on it (for when the tube is too far gone to aim at); on the Index the
+ * page's own highlight moves instead. A value opened, a slider beside the cross sets it.
  * The 27 keys are the FM-1's (F3 .. G5), plain plates: the grids show in the lights above.
  * Above it all, on black under a thin navy rule: each grid's row now as square red lights, A on the left, B on the
  * right; touched (or swept) they turn over, as the cells on the Grids page. While an FG is chosen (its page, or its
@@ -47,10 +48,11 @@ class PanelView(context: Context) : View(context) {
     private val keys = (0 until 27).map { Key(it, (5 + it) % 12 in setOf(1, 3, 6, 8, 10)) }
     private val btns = listOf(Btn("STRIKE 1", 10), Btn("A", 1), Btn("A+B", 2), Btn("B", 3), Btn("STRIKE 2", 11),
         Btn("VINTAGE", 20),                    // (over the rule, above STRIKE 2: the disk and the tube's faults, all at once)
-        Btn("", 30), Btn("", 31), Btn("SELECT", 34), Btn("", 32), Btn("", 33))   // (over the rule, at the left: left, up,
-                                                // SELECT, down, right: the screen without touching it; 30.. as Native.nav)
+        Btn("", 30), Btn("", 31), Btn("SELECT", 34), Btn("", 32), Btn("", 33))   // (over the rule, at the left, a cross:
+                                                // left, up, SELECT, down, right: the screen without touching it; 30.. as Native.nav)
     private val band = RectF()
-    private val slider = RectF()                // (the open value's slider, over the arrows)
+    private val slider = RectF()                // (the open value's slider, beside the cross)
+    private val selText = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
     private val sliding = HashSet<Int>()        // fingers on it
     private val tri = Path()
     private var navHeld: Btn? = null            // an arrow held: it repeats
@@ -71,8 +73,11 @@ class PanelView(context: Context) : View(context) {
         val bandH = minOf(46f * d, h * 0.22f)
         // the keys no taller than a real keyboard's proportions; room above for the band, the lights and their rule
         val vbH = minOf(34f * d, bandH - 12f * d)   // the VINTAGE plate, as tall as the band's
-        val slH = 22f * d                       // the slider's row, over the arrows (shown while a value is open)
-        val kh = maxOf(20f * d, minOf(h - 8 * pad - bandH - 26f * d - vbH - slH, kw * 5.5f))
+        val slH = 30f * d                       // the slider's height (beside the cross, shown while a value is open)
+        val ag = 6f * d
+        val cs = minOf(48f * d, w * 0.12f)      // the cross's plates: square, three rows
+        val crossH = 3 * cs + 2 * ag
+        val kh = maxOf(20f * d, minOf(h - 8 * pad - bandH - 26f * d - crossH, kw * 5.5f))
         val bottom = h - pad
         val top = bottom - kh
         band.set(0f, top - pad - bandH, w.toFloat(), top - pad)
@@ -102,18 +107,21 @@ class PanelView(context: Context) : View(context) {
         val x0 = w / 2f - (3 * mw + 2 * gap) / 2f
         for (i in 0..2) btns[1 + i].r.set(x0 + i * (mw + gap), by, x0 + i * (mw + gap) + mw, by + bh)
         btns[5].r.set(w - pad - sw, rule.top - pad - vbH, w - pad, rule.top - pad)
-        // the arrows and SELECT: left, up, SELECT, down, right, along the left
-        val aw = minOf(44f * d, w * 0.085f)
-        val selW = minOf(84f * d, w * 0.17f)
-        val ag = 6f * d
-        var x = pad
-        for (i in 6..10) {
-            val bw = if (i == 8) selW else aw
-            btns[i].r.set(x, rule.top - pad - vbH, x + bw, rule.top - pad)
-            x += bw + ag
-        }
-        slider.set(pad, btns[6].r.top - pad - slH, x - ag, btns[6].r.top - pad)
+        // the arrows and SELECT as a cross on the left: up on top, left / SELECT / right across the middle, down below
+        val row2 = rule.top - pad - cs          // (the rows' tops: the bottom one just over the rule)
+        val row1 = row2 - ag - cs
+        val row0 = row1 - ag - cs
+        val col = FloatArray(3) { pad + it * (cs + ag) }
+        btns[6].r.set(col[0], row1, col[0] + cs, row1 + cs)   // left
+        btns[7].r.set(col[1], row0, col[1] + cs, row0 + cs)   // up
+        btns[8].r.set(col[1], row1, col[1] + cs, row1 + cs)   // SELECT
+        btns[9].r.set(col[1], row2, col[1] + cs, row2 + cs)   // down
+        btns[10].r.set(col[2], row1, col[2] + cs, row1 + cs)  // right
+        val sx = col[2] + cs + 4 * ag           // the slider: level with VINTAGE, from the cross to VINTAGE's edge
+        slider.set(sx, btns[5].r.centerY() - slH / 2f, maxOf(sx + 40f * d, btns[5].r.left - 2 * ag), btns[5].r.centerY() + slH / 2f)
         text.textSize = minOf(bh * 0.42f, 15f * d)
+        selText.textSize = 20f
+        selText.textSize = minOf(text.textSize, 20f * cs * 0.78f / selText.measureText("SELECT"))
     }
 
     private fun ribbed(c: Canvas, r: RectF, color: Int) {   // a touch plate: pale, with fine horizontal ribs
@@ -150,6 +158,7 @@ class PanelView(context: Context) : View(context) {
             }
             text.color = navyDeep
             if (b.act in 30..33) arrow(canvas, b)
+            else if (b.act == 34) { selText.color = navyDeep; canvas.drawText(b.label, b.r.centerX(), b.r.centerY() + selText.textSize * 0.36f, selText) }
             else canvas.drawText(b.label, b.r.centerX(), b.r.centerY() + text.textSize * 0.36f, text)
         }
         drawSlider(canvas)
