@@ -107,7 +107,5 @@ static char nm_name[9];
 static void cmd_label(uint32_t id, char *s);   /* (android_touch.c) a command word as it reads now */
 static uint32_t shown_page = 0xFFFFFFFFu, shown_sub;   /* the page the screen is drawing (frozen while the disk runs) */
 static const char *vt_message(void);           /* (android_touch.c) the header's line while the disk runs */
-static void vt_disk(uint32_t write, uint32_t patch);   /* (android_touch.c) a disk access now (vintage mode: on); patch: a
-                                                   patch saved or loaded */
 static void touch_frame(uint32_t *b);          /* (android_touch.c) the taps, once a pass of the main loop */
 static void touch_draw(void);                  /* (android_touch.c) the slide bar, over the body before the tube */

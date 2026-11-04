@@ -397,32 +397,24 @@ static void vt_start(uint32_t write, uint32_t patch, uint32_t err)   /* an acces
     vt_busy = 1;
     mute = 1;                                   /* (the engine fades out, as for the FM-1's flash; the drive is heard) */
 }
-static void vt_disk(uint32_t write, uint32_t patch)
-{
-    if (!aset.vint || vt_busy || !vt_safe()) return;
-    vt_start(write, patch, 0u);
-}
 static int vt_fail_rw(uint32_t write)           /* a save or load: the disk fails it now and then (DISK: OK, BAD) */
 {
     uint32_t odds = VT_WERR[aset.odds % 3u];
-    if (!aset.vint || vt_busy || !vt_safe() || !odds || vt_rand(odds) != 0u) return 0;
+    if (!aset.vint || vt_busy || !odds || vt_rand(odds) != 0u) return 0;   /* (Disk functions: whatever's running) */
     vt_start(write, 1u, 2u);
     return 1;
 }
-static void vt_rolled(void)                     /* a patch rolled (RAND): as a load, the drive heard; vintage off, a short
-                                                   access (DISKSAVE's sound, the music aside a moment) */
+static void vt_access(uint32_t write)           /* every Disk function alike (load, save, rename, INIT, RAND): the music
+                                                   aside a moment and the drive heard, whatever's running; vintage on, the
+                                                   whole access, its drive and its odds */
 {
-    if (aset.vint && !vt_busy) { vt_start(0u, 1u, 0u); return; }   /* (a new patch: nothing running to break into, its
-                                                   key sequencer just starting) */
-    if (!aset.drive || !aset.vint) vt_kick = 3u;
+    if (vt_busy) return;
+    if (aset.vint) { vt_start(write, 1u, 0u); return; }
+    vt_kick = 3u;                               /* (the click: DISKSAVE) */
     vt_cf_on = 1; vt_cf_t0 = fm1_ms; mute = 1;
 }
-static void vt_saved(void)                      /* a patch saved: vintage, the whole access; else just its sound */
-{
-    if (aset.vint) { vt_disk(1u, 1u); if (vt_busy) return; }
-    if (!aset.drive || !aset.vint) vt_kick = 3u;   /* (DISKSAVE) */
-    if (vt_safe()) { vt_cf_on = 1; vt_cf_t0 = fm1_ms; mute = 1; }   /* (the music aside a moment: never over MIDI or the keys) */
-}
+static void vt_rolled(void) { vt_access(0u); }  /* (a roll, INIT) */
+static void vt_saved(void) { vt_access(1u); }   /* (a save, a rename) */
 static const char *vt_message(void)
 {
     static char m[32];

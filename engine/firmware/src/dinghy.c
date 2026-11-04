@@ -4323,8 +4323,7 @@ static void app_main(void)
 #endif
                     pmsg = patch_load(pcur) != 0 ? "LOAD FAILED" : pcur == P_RANDOM ? "ROLLED" : "LOADED";
 #ifdef QUORUM_ANDROID
-                    if (pcur != P_RANDOM && pcur != 0u) vt_disk(0u, 1u);   /* (vintage: the drive reads it) */
-                    if (pcur == P_RANDOM || pcur == 0u) vt_rolled();   /* (a roll, INIT: the drive heard, as a load) */
+                    vt_rolled();                        /* (any load, a roll, INIT: the drive heard, the music aside) */
                     }
 #endif
                     pconf = PC_NONE; t_msg = fm1_ms;
