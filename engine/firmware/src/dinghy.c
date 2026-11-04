@@ -1941,7 +1941,7 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
         }
 #ifdef QUORUM_ANDROID
         else if (sb == 3u) {                    /* VINTAGE: the phone's own */
-            kn_set(0, "ODDS", &aset.odds, 0, 2, F_ODDS, 1); kn_set(1, "DRIVE", &aset.drive, 0, 1, F_DRIVE, 1);
+            kn_set(0, "DISK", &aset.odds, 0, 2, F_ODDS, 1); kn_set(1, "DRIVE", &aset.drive, 0, 1, F_DRIVE, 1);
             kn_set(2, "BURN", &aset.burn, 0, 10, F_TEN, 1); kn_set(3, "PERSIST", &aset.persist, 0, 10, F_TEN, 1);
             kn_set(4, "DRAW", &aset.draw, 0, 10, F_DRAW, 1); kn_set(5, "WARM-UP", &aset.warm, 0, 1, F_ONOFF, 1);
             kn_set(6, "CAPACITOR", &aset.cap, 0, 10, F_TEN, 1); kn_set(7, "FLYBACK", &aset.fly, 0, 10, F_TEN, 1);
@@ -2052,7 +2052,7 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
 #ifdef QUORUM_ANDROID
     case F_SCAN: s_int(s, ASET_LINES[v % 5]); break;
     case F_NOTE: s_note(s, (uint32_t)v); break;
-    case F_ODDS: { static const char *const O[3] = {"RARE", "1 IN 10", "CRANKY"}; s_cat(s, O[v % 3]); } break;
+    case F_ODDS: { static const char *const O[3] = {"NEW", "OK", "BAD"}; s_cat(s, O[v % 3]); } break;
     case F_DRIVE: s_cat(s, v ? "HARD DISK" : "FLOPPY"); break;
     case F_TEN: if (!v) s_cat(s, "OFF"); else s_int(s, v); break;
     case F_DRAW: if (!v) s_cat(s, "INSTANT"); else { s_int(s, v * 80); s_cat(s, "MS"); } break;
@@ -3079,25 +3079,27 @@ static void draw_vdu(void)                      /* GLOBAL: VDU, as Arcturus S6: 
 }
 #endif
 #ifdef QUORUM_ANDROID
-static void draw_vintage(void)                  /* (Android) GLOBAL: VINTAGE: the machine's moods, all the phone's own */
+static void draw_vintage(void)                  /* (Android) GLOBAL: VINTAGE: the machine's moods, all the phone's own; all
+                                                   of them heard and seen only with VINTAGE on (the button over the keys),
+                                                   set here at any time */
 {
-    static const char *const NAME[9] = {"VINTAGE MODE", "DISK ODDS", "DRIVE", "SCREEN BURN", "PERSISTENCE", "DRAW SPEED",
-                                        "WARM-UP", "CAPACITOR", "FLYBACK"};
+    static const char *const NAME[8] = {"DISK", "DRIVE", "SCREEN BURN", "PERSISTENCE", "DRAW SPEED", "WARM-UP",
+                                        "CAPACITOR", "FLYBACK"};
     char s[24];
     uint32_t i;
     cv_begin(240, BODY_H, PH_BG);
     knobs_for(PG_GLOBAL, 3u, 0u);
-    for (i = 0; i < 9u; i++) {
+    for (i = 0; i < 8u; i++) {
         int32_t y = 2 + (int32_t)i * 18;
-        uint16_t c = i >= 1u && i <= 2u && !aset.vint ? PH_LO : PH_HI;   /* (the disk's: only with the mode on) */
         cv_text(4, y, &FONT_S, NAME[i], PH_LO);
-        if (i == 0u) { cv_text(124, y, &FONT_S, aset.vint ? "ON" : "OFF", PH_HI); tgt_add(0, BODY_Y + y - 1, 240, 18, T_OPT, 1); }
-        else { kn_text(s, &KN[i - 1u], 0); cv_text(124, y, &FONT_S, s, c); tgt_add(0, BODY_Y + y - 1, 240, 18, T_KNOB, i - 1u); }
-        if ((i >= 3u && i <= 5u) || i >= 7u) {   /* (the levels as a row of dots) */
-            uint32_t v = i == 3u ? aset.burn : i == 4u ? aset.persist : i == 5u ? aset.draw : i == 7u ? aset.cap : aset.fly, j;
+        kn_text(s, &KN[i], 0); cv_text(124, y, &FONT_S, s, PH_HI); tgt_add(0, BODY_Y + y - 1, 240, 18, T_KNOB, i);
+        if ((i >= 2u && i <= 4u) || i >= 6u) {   /* (the levels as a row of dots) */
+            uint32_t v = i == 2u ? aset.burn : i == 3u ? aset.persist : i == 4u ? aset.draw : i == 6u ? aset.cap : aset.fly, j;
             for (j = 1; j <= 10u; j++) cv_rect(176 + (int32_t)j * 5, y + 5, 3, 6, j <= v ? PH_MID : PH_SEL);
         }
     }
+    cv_rect(0, 149, 240, 1, PH_LO);
+    cv_text(4, 154, &FONT_S, aset.vint ? "VINTAGE: ON  (BUTTON ON KEYS)" : "VINTAGE: OFF (BUTTON ON KEYS)", aset.vint ? PH_HI : PH_MID);
     cv_text(4, 186, &FONT_S, "FLOPPY: ULLVIEIB, CC BY 4.0", PH_LO);   /* (the recordings' credit) */
     CMDS(C_DEGAUSS);
     cv_out(BODY_Y);
@@ -4085,6 +4087,10 @@ static void app_main(void)
             if (b & (1u << BTN_SAVE)) {
                 if (pcur == 0u || pcur == P_RANDOM) { pmsg = "CANNOT SAVE HERE"; t_msg = fm1_ms; }
                 else if (pconf == PC_SAVE || !pused[pcur]) {
+#ifdef QUORUM_ANDROID
+                    if (vt_fail_rw(1u)) pmsg = "WRITE ERROR: SAVE AGAIN";   /* (vintage: the disk let it down) */
+                    else
+#endif
                     pmsg = patch_save(pcur) == 0 ? "SAVED" : "SAVE FAILED";
 #ifdef QUORUM_ANDROID
                     if (*pmsg == 'S' && pmsg[1] == 'A' && pmsg[4] == 'D') vt_saved();   /* (the drive heard: saved) */
@@ -4095,9 +4101,14 @@ static void app_main(void)
             if (b & (1u << BTN_SEL)) {
                 if (!pused[pcur]) { pmsg = "EMPTY SLOT"; t_msg = fm1_ms; }
                 else if (pconf == PC_LOAD) {
+#ifdef QUORUM_ANDROID
+                    if (pcur != P_RANDOM && pcur != 0u && vt_fail_rw(0u)) pmsg = "WRITE ERROR: LOAD AGAIN";   /* (vintage) */
+                    else {
+#endif
                     pmsg = patch_load(pcur) != 0 ? "LOAD FAILED" : pcur == P_RANDOM ? "ROLLED" : "LOADED";
 #ifdef QUORUM_ANDROID
                     if (pcur != P_RANDOM && pcur != 0u) vt_disk(0u, 1u);   /* (vintage: the drive reads it) */
+                    }
 #endif
                     pconf = PC_NONE; t_msg = fm1_ms;
                 } else pconf = PC_LOAD;

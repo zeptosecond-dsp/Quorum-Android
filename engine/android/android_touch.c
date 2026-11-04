@@ -373,16 +373,41 @@ static int vt_safe(void)                        /* never while the music depends
     if (midi_last_ms != 0xFFFFFFFFu && fm1_ms - midi_last_ms < 3000u) return 0;
     return 1;
 }
-static void vt_disk(uint32_t write, uint32_t patch)
+static uint32_t vt_ret_page = 0xFFFFFFFFu, vt_ret_sub;   /* (a read error: the page it stays on) */
+#define VT_GAP_MS 250u                          /* (between tries: as vt_audio's pause) */
+static void vt_start(uint32_t write, uint32_t patch, uint32_t err)   /* an access: the page frozen, the music faded, the
+                                                   drive heard; err: it fails (1 read: the page sound twice; 2 write:
+                                                   DISKSAVE two or three times), then the error flashes in the header */
 {
     static const uint32_t SMP_MS[4] = {0u, 3280u, 2362u, 1362u};   /* (the recordings' lengths) */
-    if (!aset.vint || vt_busy || !vt_safe()) return;
+    uint32_t snd, reps = err == 1u ? 1u : err == 2u ? 1u + vt_rand(2u) : 0u;
     vt_write = write;
-    if (aset.drive) { vt_smp = 0; vt_len = write ? 1600u + vt_rand(1400u) : 900u + vt_rand(1300u); }
-    else { vt_smp = patch ? 3u : 1u + vt_rand(2u); vt_len = SMP_MS[vt_smp] + 120u; }   /* (the floppy: as long as it is heard) */
+    if (aset.drive) {                           /* the hard disk: made here, as long as it runs */
+        snd = write ? 1600u + vt_rand(1400u) : 900u + vt_rand(1300u);
+        snd += reps * (snd + VT_GAP_MS);
+        vt_smp = 0; vt_rep = 0;
+    } else {                                    /* the floppy: as long as it is heard */
+        vt_smp = patch ? 3u : 1u + vt_rand(2u);
+        vt_rep = reps; vt_rep_smp = vt_smp == 3u ? 3u : 3u - vt_smp; vt_gap = 0;
+        snd = SMP_MS[vt_smp] + reps * (VT_GAP_MS + SMP_MS[vt_rep_smp]);   /* (a page's second try: the other recording) */
+    }
+    vt_err = err; vt_err_at = snd + 120u;
+    vt_len = vt_err_at + (err ? 2600u : 0u);
     vt_t0 = fm1_ms; vt_seed = vt_rand(0xFFFFFFFFu) | 1u;
     vt_busy = 1;
     mute = 1;                                   /* (the engine fades out, as for the FM-1's flash; the drive is heard) */
+}
+static void vt_disk(uint32_t write, uint32_t patch)
+{
+    if (!aset.vint || vt_busy || !vt_safe()) return;
+    vt_start(write, patch, 0u);
+}
+static int vt_fail_rw(uint32_t write)           /* a save or load: the disk fails it now and then (DISK: OK, BAD) */
+{
+    uint32_t odds = VT_WERR[aset.odds % 3u];
+    if (!aset.vint || vt_busy || !vt_safe() || !odds || vt_rand(odds) != 0u) return 0;
+    vt_start(write, 1u, 2u);
+    return 1;
 }
 static void vt_saved(void)                      /* a patch saved: vintage, the whole access; else just its sound */
 {
@@ -394,6 +419,11 @@ static const char *vt_message(void)
 {
     static char m[32];
     uint32_t trk = (vt_seed >> 3) % 77u, el = fm1_ms - vt_t0;
+    if (vt_err && el >= vt_err_at) {            /* the error, flashing */
+        if (((el - vt_err_at) / 300u) & 1u) return " ";
+        return vt_err == 1u ? (aset.drive ? "** DISK READ ERROR IN C: **" : "** DISK READ ERROR IN A: **")
+                            : (aset.drive ? "** DISK WRITE ERROR IN C: **" : "** DISK WRITE ERROR IN B: **");
+    }
     trk = (trk + el / 130u * 7u) % 77u;         /* (the head stepping about) */
     m[0] = 0;
     s_cat(m, aset.drive ? "DRIVE C: " : "DRIVE A: ");
@@ -402,14 +432,35 @@ static const char *vt_message(void)
     s_int(m, (int32_t)trk);
     return m;
 }
+static void vt_end(void)                        /* the access over (or vintage switched off): all back */
+{
+    vt_busy = 0; vt_rep = 0; vt_gap = 0; vt_err = 0; mute = 0; hdr_force = 1;
+}
 static void vt_poll(void)                       /* each pass: a page changed (by anything) may wait; an access ends */
 {
     static uint32_t vp = 0xFFFFFFFFu, vs;
+    if (pn_vint) {                              /* the VINTAGE button: off, everything gone at once */
+        aset.vint = pn_vint == 2u; pn_vint = 0; aset_dirty = 1; t_aset = fm1_ms;
+        if (!aset.vint && vt_busy) { vt_end(); vt_play = 0; vt_ret_page = 0xFFFFFFFFu; }
+    }
     if (page != vp || sub != vs) {
-        if (vp != 0xFFFFFFFFu && aset.vint && !vt_busy && vt_rand(VT_ODDS[aset.odds % 3u]) == 0u) vt_disk(0u, 0u);
+        if (vp != 0xFFFFFFFFu && aset.vint && !vt_busy && vt_safe() && vt_rand(VT_ODDS[aset.odds % 3u]) == 0u) {
+            uint32_t re = VT_RERR[aset.odds % 3u];
+            uint32_t err = re && vt_rand(re) == 0u;   /* (the page can't be read: it stays where it was) */
+            vt_start(0u, 0u, err);
+            vt_ret_page = err ? vp : 0xFFFFFFFFu; vt_ret_sub = vs;
+        }
         vp = page; vs = sub;
     }
-    if (vt_busy && fm1_ms - vt_t0 >= vt_len) { vt_busy = 0; mute = 0; hdr_force = 1; }
+    if (vt_busy && vt_err && mute && fm1_ms - vt_t0 >= vt_err_at) mute = 0;   /* (the error up: the music back) */
+    if (vt_busy && fm1_ms - vt_t0 >= vt_len) {
+        vt_end();
+        if (vt_ret_page != 0xFFFFFFFFu) {       /* the read failed: back to the page it was on, to try again */
+            page = vt_ret_page; sub = vt_ret_sub; bank = 0;
+            vp = page; vs = sub; vt_ret_page = 0xFFFFFFFFu;
+            bar_close();
+        }
+    }
     if (vt_cf_on && fm1_ms - vt_cf_t0 >= 1400u) { vt_cf_on = 0; if (!vt_busy) mute = 0; }   /* (DISKSAVE's length) */
 }
 
@@ -485,8 +536,8 @@ static void nm_poll(void)                       /* each pass: a name come back f
             int r;
             if (nm_new) {                       /* the new file: named, now saved */
                 for (i = 0; i < 8u; i++) cur_name[i] = n[i];
-                r = patch_save(nm_ask);
-                pmsg = r == 0 ? "SAVED" : "SAVE FAILED";
+                if (vt_fail_rw(1u)) { r = -1; pmsg = "WRITE ERROR: SAVE AGAIN"; }   /* (vintage: the disk let it down) */
+                else { r = patch_save(nm_ask); pmsg = r == 0 ? "SAVED" : "SAVE FAILED"; }
             } else { r = patch_rename(nm_ask, n); pmsg = r == 0 ? "NAMED" : "NAMING FAILED"; }
             if (r == 0) vt_saved();             /* (the save's sound, the music aside a moment: both alike) */
             t_msg = fm1_ms;
@@ -705,6 +756,9 @@ void quorum_strike(int32_t s, int32_t down) { if (down) pn_st_dn[s & 1]++; else 
 /* the lights: an FG's level to show (0..32767), or -1 (the grids' rows); the boot screen up */
 int32_t quorum_fg_level(void) { return pn_fg; }
 int32_t quorum_booting(void) { return (int32_t)pn_boot; }
+/* the VINTAGE button: set (the disk and the tube's faults all on, or all off at once), and as it is */
+void quorum_vintage(int32_t on) { pn_vint = on ? 2u : 1u; }
+int32_t quorum_vintage_get(void) { return pn_vint ? (int32_t)(pn_vint == 2u) : (int32_t)aset.vint; }
 /* the strikes' gates, for the buttons' glow */
 int32_t quorum_strike_lit(void) { return (int32_t)((kgate_v[0] ? 1u : 0u) | (kgate_v[1] ? 2u : 0u)); }
 

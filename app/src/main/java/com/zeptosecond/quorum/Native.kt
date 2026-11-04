@@ -53,6 +53,9 @@ object Native {
     @JvmStatic external fun fgLevel(): Int
     /** 1 while the boot screen (the petri dish) is up. */
     @JvmStatic external fun booting(): Int
+    /** VINTAGE (the button over the keyboard): the disk and the tube's faults, all on or all off at once. */
+    @JvmStatic external fun vintage(on: Boolean)
+    @JvmStatic external fun vintageGet(): Boolean
 
     // the FM-1's ids (firmware/src/platform.c)
     const val BTN_OCT_DOWN = 0

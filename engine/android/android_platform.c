@@ -239,14 +239,17 @@ static void vt_audio(int32_t *blk, uint32_t n)
     if (vt_busy && !vt_prev && vt_smp) { vt_play = vt_smp; vt_pos = 0; }   /* the floppy: its recording, from the top */
     if (vt_kick) { vt_play = vt_kick; vt_pos = 0; vt_kick = 0; }   /* (a save heard, vintage mode or not) */
     if (!vt_busy) vt_prev = 0;
-    if (!on && !vt_play && !vt_kick && vt_motor < 0.001f && dg_start_ms == dg_seen && dg_amp < 0.001f) return;
+    if (!on && !vt_play && !vt_kick && !vt_gap && vt_motor < 0.001f && dg_start_ms == dg_seen && dg_amp < 0.001f) return;
     if (on && !vt_prev) { vt_rs ^= vt_seed; vt_nstep = 0; vt_wait = 2000u; }   /* the hard disk spins up */
     if (vt_busy) vt_prev = 1;
     if (vt_play) {                              /* (the recording plays out whole, even after the page has moved on) */
         const int16_t *sm = vt_play == 1u ? VT_DISK1 : vt_play == 2u ? VT_DISK3 : VT_DISKSAVE;
         uint32_t len = vt_play == 1u ? sizeof VT_DISK1 / 2u : vt_play == 2u ? sizeof VT_DISK3 / 2u : sizeof VT_DISKSAVE / 2u;
         for (i = 0; i < n && vt_pos < len; i++, vt_pos++) { blk[2u * i] += sm[vt_pos]; blk[2u * i + 1u] += sm[vt_pos]; }
-        if (vt_pos >= len) vt_play = 0;
+        if (vt_pos >= len) { vt_play = 0; if (vt_rep && vt_busy) vt_gap = 11025u; }   /* (trying again: a pause first) */
+    } else if (vt_rep && vt_busy && vt_gap) {   /* the pause over: the next try */
+        if (vt_gap > n) vt_gap -= n;
+        else { vt_gap = 0; vt_play = vt_rep_smp; vt_pos = 0; vt_rep--; if (vt_rep_smp < 3u) vt_rep_smp = 3u - vt_rep_smp; }
     }
     if (dg_start_ms != dg_seen) { dg_seen = dg_start_ms; dg_amp = 1.0f; vt_strike(2, 55.0f, 2.0f, 90.0f, 120.0f); }
     for (i = 0; i < n; i++) {

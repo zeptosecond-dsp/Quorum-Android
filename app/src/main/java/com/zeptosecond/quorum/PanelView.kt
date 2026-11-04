@@ -12,7 +12,8 @@ import android.view.View
 /**
  * The keyboard under the screen, dressed as Buchla's Electric Music Box touch keyboard: pale ribbed plates on a navy
  * panel, each raised key ringed in red, a red band along the top. On the band: STRIKE 1 at the far left, the split
- * the keys play (A, A+B, B) in the middle, STRIKE 2 at the far right, all plates like the keys.
+ * the keys play (A, A+B, B) in the middle, STRIKE 2 at the far right, all plates like the keys. Over the rule, above
+ * STRIKE 2, VINTAGE: the disk and the tube's faults all on or all off at once (off: a clean screen to set them from).
  * The 27 keys are the FM-1's (F3 .. G5), plain plates: the grids show in the lights above.
  * Above it all, on black under a thin navy rule: each grid's row now as square red lights, A on the left, B on the
  * right; touched (or swept) they turn over, as the cells on the Grids page. While an FG is chosen (its page, or its
@@ -41,7 +42,8 @@ class PanelView(context: Context) : View(context) {
 
     // F3 .. G5: bit 0 .. 26
     private val keys = (0 until 27).map { Key(it, (5 + it) % 12 in setOf(1, 3, 6, 8, 10)) }
-    private val btns = listOf(Btn("STRIKE 1", 10), Btn("A", 1), Btn("A+B", 2), Btn("B", 3), Btn("STRIKE 2", 11))
+    private val btns = listOf(Btn("STRIKE 1", 10), Btn("A", 1), Btn("A+B", 2), Btn("B", 3), Btn("STRIKE 2", 11),
+        Btn("VINTAGE", 20))                    // (over the rule, above STRIKE 2: the disk and the tube's faults, all at once)
     private val band = RectF()
     private val strip = RectF()                 // the lights' row
     private val rule = RectF()                  // the thin navy line over it
@@ -58,7 +60,8 @@ class PanelView(context: Context) : View(context) {
         val kw = (w - 2 * pad) / whites
         val bandH = minOf(46f * d, h * 0.22f)
         // the keys no taller than a real keyboard's proportions; room above for the band, the lights and their rule
-        val kh = maxOf(20f * d, minOf(h - 4 * pad - bandH - 26f * d, kw * 5.5f))
+        val vbH = minOf(34f * d, bandH - 12f * d)   // the VINTAGE plate, as tall as the band's
+        val kh = maxOf(20f * d, minOf(h - 6 * pad - bandH - 26f * d - vbH, kw * 5.5f))
         val bottom = h - pad
         val top = bottom - kh
         band.set(0f, top - pad - bandH, w.toFloat(), top - pad)
@@ -87,6 +90,7 @@ class PanelView(context: Context) : View(context) {
         val gap = 8f * d
         val x0 = w / 2f - (3 * mw + 2 * gap) / 2f
         for (i in 0..2) btns[1 + i].r.set(x0 + i * (mw + gap), by, x0 + i * (mw + gap) + mw, by + bh)
+        btns[5].r.set(w - pad - sw, rule.top - pad - vbH, w - pad, rule.top - pad)
         text.textSize = minOf(bh * 0.42f, 15f * d)
     }
 
@@ -106,12 +110,13 @@ class PanelView(context: Context) : View(context) {
         drawLights(canvas)
         val route = Native.routeGet()
         val lit = Native.strikeLit()
+        val vint = Native.vintageGet()
 
         // the red band and its plates
         fill.color = red
         canvas.drawRect(band, fill)
         btns.forEach { b ->
-            val on = when (b.act) { in 1..3 -> b.act == route; 10 -> lit and 1 != 0; else -> lit and 2 != 0 }
+            val on = when (b.act) { in 1..3 -> b.act == route; 10 -> lit and 1 != 0; 20 -> vint; else -> lit and 2 != 0 }
             val down = pressed.containsValue(b)
             fill.color = navyDeep
             canvas.drawRect(b.r.left - 1.5f * d, b.r.top - 1.5f * d, b.r.right + 1.5f * d, b.r.bottom + 1.5f * d, fill)
@@ -227,6 +232,7 @@ class PanelView(context: Context) : View(context) {
     private fun press(b: Btn) {
         when (b.act) {
             in 1..3 -> Native.route(b.act)
+            20 -> Native.vintage(!Native.vintageGet())
             10, 11 -> Native.strike(b.act - 10, true)
         }
     }

@@ -30,6 +30,8 @@ void quorum_strike(int32_t s, int32_t down);
 int32_t quorum_strike_lit(void);
 int32_t quorum_fg_level(void);
 int32_t quorum_booting(void);
+void quorum_vintage(int32_t on);
+int32_t quorum_vintage_get(void);
 void quorum_name_set(const char *s, int32_t ok);
 }
 
@@ -165,5 +167,7 @@ JNI void JNICALL FN(strike)(JNIEnv *, jclass, jint s, jboolean down) { quorum_st
 JNI jint JNICALL FN(strikeLit)(JNIEnv *, jclass) { return quorum_strike_lit(); }
 JNI jint JNICALL FN(fgLevel)(JNIEnv *, jclass) { return quorum_fg_level(); }
 JNI jint JNICALL FN(booting)(JNIEnv *, jclass) { return quorum_booting(); }
+JNI void JNICALL FN(vintage)(JNIEnv *, jclass, jboolean on) { quorum_vintage(on ? 1 : 0); }
+JNI jboolean JNICALL FN(vintageGet)(JNIEnv *, jclass) { return quorum_vintage_get() != 0; }
 JNI jint JNICALL FN(row)(JNIEnv *, jclass, jint g) { return (jint)quorum_row(g); }
 JNI void JNICALL FN(cell)(JNIEnv *, jclass, jint g, jint c) { quorum_cell(g, c); }

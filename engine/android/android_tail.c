@@ -38,7 +38,8 @@ static void reveal(uint8_t *out)
  *   screen burn  the Index burnt into the glass from all the hours it was left on: a pale ghost of it behind every
  *                page (SCREEN BURN 1..10, from barely there to a monitor almost toast). Taken from the Index as it
  *                stands, softened, each time it is on the screen whole.
- *   warm-up      at launch the tube starts dim and comes up over about nine seconds (WARM-UP ON) */
+ *   warm-up      at launch the tube starts dim and comes up over about nine seconds (WARM-UP ON)
+ * all only with VINTAGE on (the button over the keyboard): off, a clean tube at once */
 static uint8_t vt_pers[240u * 240u], vt_burn[240u * 240u];
 static uint32_t vt_burn_have;
 static void vintage(uint8_t *out)
@@ -53,7 +54,7 @@ static void vintage(uint8_t *out)
         }
         vt_burn_have = 1;
     }
-    if (aset.persist) {
+    if (aset.persist && aset.vint) {
         uint32_t dk = 140u + (uint32_t)aset.persist * 11u;   /* (each frame keeps dk/256 of the trail) */
         for (i = 0; i < 240u * 240u; i++) {
             uint32_t p = vt_pers[i] * dk >> 8;
@@ -61,7 +62,7 @@ static void vintage(uint8_t *out)
             vt_pers[i] = (uint8_t)p; out[i] = (uint8_t)p;
         }
     }
-    if (aset.burn && vt_burn_have) {
+    if (aset.burn && aset.vint && vt_burn_have) {
         static const uint8_t BURN_K[11] = {0, 7, 12, 18, 26, 36, 48, 62, 78, 98, 120};   /* (a faint ghost .. toast) */
         uint32_t k = BURN_K[aset.burn > 10u ? 10u : aset.burn];
         for (i = 0; i < 240u * 240u; i++) {
@@ -69,7 +70,7 @@ static void vintage(uint8_t *out)
             out[i] = (uint8_t)(v > 255u ? 255u : v);
         }
     }
-    if (aset.warm && fm1_ms < 9000u) {
+    if (aset.warm && aset.vint && fm1_ms < 9000u) {
         float t = (float)fm1_ms / 9000.0f, g = 0.12f + 0.88f * t * t * (3.0f - 2.0f * t);
         for (i = 0; i < 240u * 240u; i++) out[i] = (uint8_t)((float)out[i] * g);
     }
@@ -88,7 +89,7 @@ void quorum_crt(uint8_t *intensity, uint8_t *rgba, int32_t *gain)
         uint32_t dg = fm1_ms - dg_start_ms;
         gain[0] = (int32_t)gc; gain[1] = (int32_t)ge; gain[2] = ASET_LINES[aset.lines % 5u]; gain[3] = (int32_t)aset.dark * 7;
         gain[4] = dg_start_ms != 0xFFFFFFFFu && dg < 2000u ? (int32_t)dg : -1;   /* the degauss: ms since, or -1 */
-        gain[5] = aset.cap; gain[6] = aset.fly;   /* (VINTAGE: the tube's faults, 0..10: CrtView draws them) */
+        gain[5] = aset.vint ? aset.cap : 0; gain[6] = aset.vint ? aset.fly : 0;   /* (VINTAGE: the tube's faults, 0..10: CrtView draws them) */
     }
     if (!rgba) return;
     for (i = 0; i < 256u; i++) {

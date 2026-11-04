@@ -45,12 +45,14 @@ typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist
                                                    CAPACITOR and FLYBACK) */
 typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, cap, fly, pad[3]; } aset_t;
 static aset_t aset = {4, 2, 6, 1, 0, 1, 0, 0, 0, 3, 0, 0, 0, {0, 0, 0}};   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
-                                                   lightpen's cursor; (Global: VINTAGE) vint: vintage mode, off until
-                                                   asked; odds: a disk access on a page change, rare / 1 in 10 /
-                                                   cranky; drive: 5.25" floppy (recorded) / hard disk; burn, persist: 0..10; draw: the
+                                                   lightpen's cursor; (Global: VINTAGE) vint: vintage mode (the button over
+                                                   the keyboard), off until asked: the disk and the tube's faults all
+                                                   with it; odds: the disk's condition, NEW / OK / BAD; drive: 5.25" floppy (recorded) / hard disk; burn, persist: 0..10; draw: the
                                                    page drawn in over draw x 80 ms; warm: a warm-up at launch; cap, fly: 0..10, the
                                                    tired capacitors' wavy edges, the failing flyback's fold (CrtView) */
-static const uint8_t VT_ODDS[3] = {25, 10, 4};   /* a disk access: one page change in so many */
+static const uint8_t VT_ODDS[3] = {25, 10, 4};   /* a disk access: one page change in so many (DISK: NEW, OK, BAD) */
+static const uint8_t VT_RERR[3] = {0, 12, 3};    /* of those, a read error one in so many (0: never) */
+static const uint8_t VT_WERR[3] = {0, 20, 3};    /* a save or load failing: one in so many */
 
 /* (Global: VINTAGE) the disk: an access running (the page frozen, the sound faded, the drive heard); the drive's sounds
  * and the degauss's are mixed in after the engine's fade (android_platform.c) */
@@ -90,6 +92,11 @@ static _Atomic uint32_t pn_flip[2];             /* (the lights over the keyboard
 static volatile uint32_t vt_kick;                /* a recording to start now, the page not frozen (1..3, as vt_smp) */
 static uint32_t vt_cf_t0, vt_cf_on;              /* (the save's confirmation: the sound faded a moment) */
 static void vt_saved(void);                    /* (android_touch.c) a patch saved: the drive heard, vintage or not */
+static int vt_fail_rw(uint32_t write);                   /* (android_touch.c) a save or load about to happen: 1 if the disk fails it
+                                                   (DISK: OK rarely, BAD often; the access and the error already begun) */
+static uint32_t vt_rep, vt_rep_smp, vt_gap;     /* (the drive trying again: so many more plays of vt_rep_smp, a pause between) */
+static uint32_t vt_err, vt_err_at;              /* (an error: 1 read, 2 write; the ms into the access its flashing starts) */
+static volatile uint32_t pn_vint;               /* (the VINTAGE button over the keyboard: 1 off, 2 on, asked) */
 static char nm_name[9];
 static void cmd_label(uint32_t id, char *s);   /* (android_touch.c) a command word as it reads now */
 static uint32_t shown_page = 0xFFFFFFFFu, shown_sub;   /* the page the screen is drawing (frozen while the disk runs) */
