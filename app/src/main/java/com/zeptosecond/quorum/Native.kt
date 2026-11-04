@@ -44,6 +44,9 @@ object Native {
     @JvmStatic external fun routeGet(): Int
     /** Strike [s] (0, 1) by hand: down and up (Bow and Breath sound while it is held). */
     @JvmStatic external fun strike(s: Int, down: Boolean)
+    /** Grid [g]'s row now (bit 0 its first cell); [cell] turns one of its cells over. */
+    @JvmStatic external fun row(g: Int): Int
+    @JvmStatic external fun cell(g: Int, c: Int)
     /** The strikes' gates now: bit 0 strike 1, bit 1 strike 2. */
     @JvmStatic external fun strikeLit(): Int
 

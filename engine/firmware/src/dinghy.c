@@ -2190,7 +2190,7 @@ static void draw_index(uint32_t cur)
         if (!PG_READY[i]) cv_text(196, y, &FONT_S, "--", PH_LO);
     }
 #ifdef QUORUM_ANDROID
-    cv_text(4, 196, &FONT_S, "TAP A PAGE TO OPEN IT", PH_LO);
+    cv_rect(0, 197, 240, 1, PH_LO);             /* (a rule under the list, as the one over it) */
 #else
     cv_text(4, 196, &FONT_S, "SELECT: CHOOSE  SEL: OPEN", PH_LO);
 #endif
@@ -2992,8 +2992,20 @@ static void draw_tuning(void)                   /* GLOBAL: TUNING, as Arcturus S
     s[0] = 0; s_cat(s, "GLIDE "); s_int(s, P.glide[qsel & 1u]);
     cv_text(112, 120, &FONT_S, s, PH_MID);
 #ifdef QUORUM_ANDROID
-    tgt_add(0, BODY_Y + 1, 240, 18, T_KNOB, 0); tgt_add(0, BODY_Y + 19, 240, 18, T_KNOB, 1);
-    tgt_add(0, BODY_Y + 37, 240, 18, T_KNOB, 2); tgt_add(108, BODY_Y + 119, 132, 18, T_KNOB, 3);
+    tgt_add(0, BODY_Y + 1, 190, 18, T_KNOB, 0); tgt_add(0, BODY_Y + 19, 190, 18, T_KNOB, 1);
+    tgt_add(0, BODY_Y + 37, 190, 18, T_KNOB, 2); tgt_add(108, BODY_Y + 119, 132, 18, T_KNOB, 3);
+    {                                           /* each setting's arrows: back, on */
+        uint32_t r;
+        for (r = 0; r < 3u; r++) {
+            int32_t y = 1 + (int32_t)r * 18, a;
+            for (a = 0; a < 2; a++) {
+                int32_t x = 194 + a * 23;
+                cv_rect(x, y, 21, 1, PH_LO); cv_rect(x, y + 16, 21, 1, PH_LO); cv_rect(x, y, 1, 17, PH_LO); cv_rect(x + 20, y, 1, 17, PH_LO);
+                cv_text(x + 7, y + 1, &FONT_S, a ? ">" : "<", PH_MID);
+                tgt_add(x - 1, BODY_Y + y - 1, 23, 19, T_CMD, C_TUNDN + r * 2u + (uint32_t)a);
+            }
+        }
+    }
     tgt_add(108, BODY_Y + 69, 132, 18, T_CMD, C_PATHA); tgt_add(108, BODY_Y + 91, 132, 18, T_CMD, C_PATHB);
     cv_text(4, 182, &FONT_S, "TAP A SETTING OR A PATH", PH_LO);
     CMDS(C_QUANT);

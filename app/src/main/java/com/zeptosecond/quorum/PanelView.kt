@@ -14,6 +14,8 @@ import android.view.View
  * panel, each raised key ringed in red, a red band along the top. On the band: STRIKE 1 at the far left, the split
  * the keys play (A, A+B, B) in the middle, STRIKE 2 at the far right, all plates like the keys.
  * The 27 keys are the FM-1's (F3 .. G5) with their lights (the grid's cells; the top two are strike 1 and 2).
+ * Above it all, on black under a thin navy rule: each grid's row now as square red lights, A on the left, B on the
+ * right; touched (or swept) they turn over, as the cells on the Grids page.
  */
 class PanelView(context: Context) : View(context) {
     private val d = resources.displayMetrics.density
@@ -39,6 +41,11 @@ class PanelView(context: Context) : View(context) {
     private val keys = (0 until 27).map { Key(it, (5 + it) % 12 in setOf(1, 3, 6, 8, 10)) }
     private val btns = listOf(Btn("STRIKE 1", 10), Btn("A", 1), Btn("A+B", 2), Btn("B", 3), Btn("STRIKE 2", 11))
     private val band = RectF()
+    private val strip = RectF()                 // the lights' row
+    private val rule = RectF()                  // the thin navy line over it
+    private val ledX = FloatArray(2)            // where each grid's 32 lights start
+    private var ledPitch = 0f
+    private val swept = HashMap<Int, Int>()     // finger -> the light it last turned (g * 32 + cell)
     private val held = HashMap<Int, Key?>()     // finger -> the key under it
     private val pressed = HashMap<Int, Btn>()   // finger -> the button under it
     private var keyMask = 0
@@ -48,11 +55,18 @@ class PanelView(context: Context) : View(context) {
         val whites = keys.count { !it.black }
         val kw = (w - 2 * pad) / whites
         val bandH = minOf(46f * d, h * 0.22f)
-        // the keys no taller than a real keyboard's proportions; the rest of the space above them left as panel
-        val kh = minOf(h - 2 * pad - bandH - pad, kw * 5.5f)
+        // the keys no taller than a real keyboard's proportions; room above for the band, the lights and their rule
+        val kh = maxOf(20f * d, minOf(h - 4 * pad - bandH - 26f * d, kw * 5.5f))
         val bottom = h - pad
         val top = bottom - kh
         band.set(0f, top - pad - bandH, w.toFloat(), top - pad)
+        val stripH = 26f * d
+        strip.set(0f, band.top - stripH, w.toFloat(), band.top)
+        rule.set(0f, strip.top - pad, w.toFloat(), strip.top)
+        val half = (w - 3 * pad) / 2f           // A: the left half, B: the right
+        ledPitch = half / 32f
+        ledX[0] = pad
+        ledX[1] = 2 * pad + half
         var wi = 0
         keys.forEach { k ->
             val x = pad + wi * kw
@@ -83,7 +97,25 @@ class PanelView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(navy)
+        canvas.drawColor(0xFF000000.toInt())
+        fill.color = navy
+        canvas.drawRect(rule, fill)
+        canvas.drawRect(0f, band.top, width.toFloat(), height.toFloat(), fill)
+        for (g in 0..1) {                       // the grids' rows: lit or not
+            val row = Native.row(g)
+            val s = ledPitch * 0.66f
+            for (c in 0 until 32) {
+                val x = ledX[g] + c * ledPitch + (ledPitch - s) / 2f
+                val y = strip.centerY() - s / 2f
+                val on = (row ushr c) and 1 != 0
+                if (on) {
+                    fill.color = 0x55FF2A2A
+                    canvas.drawRect(x - 1.5f * d, y - 1.5f * d, x + s + 1.5f * d, y + s + 1.5f * d, fill)
+                }
+                fill.color = if (on) 0xFFFF3B30.toInt() else 0xFF3A0C10.toInt()
+                canvas.drawRect(x, y, x + s, y + s, fill)
+            }
+        }
         val leds = Native.leds()
         val glow = Native.glow()
         val route = Native.routeGet()
@@ -134,6 +166,22 @@ class PanelView(context: Context) : View(context) {
         x >= it.r.left - 4f * d && x <= it.r.right + 4f * d && y >= it.r.top - 4f * d && y <= it.r.bottom + 4f * d
     }
 
+    private fun ledAt(x: Float, y: Float): Int? {   // g * 32 + cell, or null
+        if (y < strip.top - 6f * d || y > strip.bottom) return null
+        for (g in 0..1) {
+            val c = ((x - ledX[g]) / ledPitch).toInt()
+            if (x >= ledX[g] && c in 0 until 32) return g * 32 + c
+        }
+        return null
+    }
+
+    private fun sweep(id: Int, x: Float, y: Float) {
+        val l = ledAt(x, y) ?: return
+        if (swept[id] == l) return
+        swept[id] = l
+        Native.cell(l / 32, l % 32)
+    }
+
     private fun sendKeys() {
         var m = 0
         held.values.forEach { k -> k?.let { m = m or (1 shl it.bit) } }
@@ -161,11 +209,13 @@ class PanelView(context: Context) : View(context) {
                 val id = ev.getPointerId(i)
                 val b = btnAt(ev.getX(i), ev.getY(i))
                 if (b != null) { pressed[id] = b; press(b) }
+                else if (ev.getY(i) < band.top) { swept[id] = -1; sweep(id, ev.getX(i), ev.getY(i)) }
                 else { held[id] = keyAt(ev.getX(i), ev.getY(i)); sendKeys() }
             }
             MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until ev.pointerCount) {
                     val id = ev.getPointerId(i)
+                    if (swept.containsKey(id)) { sweep(id, ev.getX(i), ev.getY(i)); continue }
                     if (!held.containsKey(id)) continue
                     val k = keyAt(ev.getX(i), ev.getY(i))
                     if (k !== held[id]) { held[id] = k; sendKeys() }
@@ -174,12 +224,13 @@ class PanelView(context: Context) : View(context) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 val id = ev.getPointerId(ev.actionIndex)
                 pressed.remove(id)?.let { release(it) }
+                swept.remove(id)
                 held.remove(id)
                 sendKeys()
             }
             MotionEvent.ACTION_CANCEL -> {
                 pressed.values.forEach { release(it) }
-                pressed.clear(); held.clear(); sendKeys()
+                pressed.clear(); held.clear(); swept.clear(); sendKeys()
             }
         }
         return true

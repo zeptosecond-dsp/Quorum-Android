@@ -93,7 +93,6 @@ static void header_tap(float x, uint32_t *b)
     if (page == PG_MOD || page == PG_GMAT || (page_subs(page) > 1u && !(page == PG_SEQ && sub >= NSEQ))) *b |= 1u << BTN_OCT_UP;
 }
 
-static float tap_x;                             /* (where the tap was: Global's TUNING steps back from its label) */
 static void value_tap(uint32_t knob, const tgt_t *t)
 {
     kn_t *k;
@@ -104,7 +103,7 @@ static void value_tap(uint32_t knob, const tgt_t *t)
     if (TB.open && TB.knob == knob) { bar_close(); return; }
     cycle = page == PG_GLOBAL && sub == 0u && knob <= 2u;   /* TUNING, SCALE, ROOT: stepped through, as switches */
     if (k->hi - k->lo < 6 || cycle) {           /* a switch: the next setting, round again (Global: the label, back) */
-        int32_t v = kn_get(k) + (cycle && tap_x < 64.0f ? -1 : 1);
+        int32_t v = kn_get(k) + 1;
         kn_put(k, v > k->hi ? k->lo : v < k->lo ? k->hi : v);
         after_change(page, sub, knob, bank);
         knobs_for(page, sub, bank);
@@ -444,6 +443,8 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     case C_LOAD: s_cat(s, pconf == PC_LOAD && pcur != 0u ? "LOAD?" : "LOAD"); break;
     case C_SAVE: s_cat(s, pconf == PC_SAVE ? "SAVE?" : "SAVE"); break;
     case C_NAME: s_cat(s, "NAME"); break;
+    case C_TUNDN: case C_SCLDN: case C_ROOTDN: s_cat(s, "<"); break;
+    case C_TUNUP: case C_SCLUP: case C_ROOTUP: s_cat(s, ">"); break;
     case C_INIT: s_cat(s, pcur == 0u && pconf == PC_LOAD ? "INIT?" : "INIT"); break;
     case C_RAND: s_cat(s, "RAND"); break;
     case C_NLEFT: s_cat(s, "<"); break;
@@ -524,7 +525,20 @@ static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the
     case C_SEED: case C_FIRE: case C_KEYS: case C_GATE: case C_NOFB: case C_DCLEAR: case C_FREEZE: case C_QUANT:
     case C_RESETMAX: case C_NCANCEL:
         *b |= 1u << BTN_PLAY; break;
-    case C_NAME: nm_start(pcur); break;         /* (the phone's keyboard) */
+    case C_NAME: nm_start(pcur); break;
+    case C_TUNDN: case C_TUNUP: case C_SCLDN: case C_SCLUP: case C_ROOTDN: case C_ROOTUP: {   /* (Global: the arrows) */
+        uint32_t kn = t->a <= C_TUNUP ? 0u : t->a <= C_SCLUP ? 1u : 2u;
+        int32_t v;
+        kn_t *k;
+        knobs_for(PG_GLOBAL, 0u, 0u);
+        k = &KN[kn];
+        v = kn_get(k) + ((t->a - C_TUNDN) & 1u ? 1 : -1);
+        kn_put(k, v > k->hi ? k->lo : v < k->lo ? k->hi : v);
+        after_change(PG_GLOBAL, 0u, kn, 0u);
+        knobs_for(page, sub, bank);
+        bar_close();
+        break;
+    }         /* (the phone's keyboard) */
     case C_INIT: if (pcur != 0u) { pcur = 0; pconf = PC_NONE; } *b |= 1u << BTN_SEL; pmsg = ""; break;   /* (twice: INIT, LOAD?) */
     case C_RAND: pcur = P_RANDOM; pconf = PC_LOAD; *b |= 1u << BTN_SEL; break;   /* (a new roll each tap) */            /* (what PLAY did on this page) */
     case C_F0: case C_LOAD: case C_BANK: *b |= 1u << BTN_SEL; break;   /* (SEL: a page's banks, VOICE's F0, the Disk's load) */
@@ -663,7 +677,19 @@ static void panel_poll(void)
         }
         if (pn_st_up[s] != up_seen[s]) { up_seen[s] = pn_st_up[s]; if (P.k[s].mode >= KM_BOW) kman_hold_v[s] = 0; }
     }
+    for (s = 0; s < 2u; s++) {                  /* cells touched on the lights: as on the Grids page */
+        uint32_t f = atomic_exchange(&pn_flip[s], 0u);
+        if (f) {
+            grid_t *g = &G[s];
+            g->row ^= f;
+            g->hist[(g->head + GHIST - 1u) % GHIST] = g->row;
+            dirty_partials = 1;
+        }
+    }
 }
+/* the lights: each grid's row now (bit 0 its first cell); a cell turned over */
+uint32_t quorum_row(int32_t g) { return G[g & 1].row; }
+void quorum_cell(int32_t g, int32_t c) { if (c >= 0 && c < (int32_t)NC) atomic_fetch_xor(&pn_flip[g & 1], 1u << c); }
 void quorum_route(int32_t mode) { if (mode >= 1 && mode <= 3) pn_route = (uint32_t)mode; }
 int32_t quorum_route_get(void) { return P.kbd[0] && P.kbd[1] ? 2 : P.kbd[1] ? 3 : P.kbd[0] ? 1 : 0; }   /* (0: neither) */
 void quorum_strike(int32_t s, int32_t down) { if (down) pn_st_dn[s & 1]++; else pn_st_up[s & 1]++; }
@@ -723,7 +749,6 @@ static void touch_frame(uint32_t *b)
                 if (hit->a == 1u) { aset.vint ^= 1u; aset_dirty = 1; t_aset = fm1_ms; }   /* (VINTAGE MODE) */
             } else if (hit->kind == T_KNOB) {
                 tgt_t t = *hit;
-                tap_x = x;
                 value_tap(hit->a, &t);
             }
         } else if (act == TE_MOVE) {

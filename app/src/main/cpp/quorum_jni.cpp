@@ -23,6 +23,8 @@ void quorum_crt(uint8_t *intensity, uint8_t *rgba, int32_t *gain);
 void quorum_touch(int32_t act, float x, float y);
 int32_t quorum_name_ask(char *out);
 void quorum_route(int32_t mode);
+uint32_t quorum_row(int32_t g);
+void quorum_cell(int32_t g, int32_t c);
 int32_t quorum_route_get(void);
 void quorum_strike(int32_t s, int32_t down);
 int32_t quorum_strike_lit(void);
@@ -159,3 +161,5 @@ JNI void JNICALL FN(route)(JNIEnv *, jclass, jint mode) { quorum_route(mode); }
 JNI jint JNICALL FN(routeGet)(JNIEnv *, jclass) { return quorum_route_get(); }
 JNI void JNICALL FN(strike)(JNIEnv *, jclass, jint s, jboolean down) { quorum_strike(s, down ? 1 : 0); }
 JNI jint JNICALL FN(strikeLit)(JNIEnv *, jclass) { return quorum_strike_lit(); }
+JNI jint JNICALL FN(row)(JNIEnv *, jclass, jint g) { return (jint)quorum_row(g); }
+JNI void JNICALL FN(cell)(JNIEnv *, jclass, jint g, jint c) { quorum_cell(g, c); }

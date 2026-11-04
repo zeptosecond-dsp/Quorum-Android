@@ -13,7 +13,8 @@ enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT, T_TAB, T_FGSHAPE, T_FGPEAK,
  * REC, SEQ, OCT did on that page; a few were the ALGORITHM / PRESETS encoders' */
 enum { C_SEED, C_FIRE, C_FILT, C_ROUTE, C_FREE, C_F0, C_ROOT, C_N, C_KEYS, C_GATE, C_REC, C_AUTO, C_CLEAR, C_NOFB,
        C_PHSLOW, C_DCLEAR, C_FREEZE, C_RVRATE, C_PATHA, C_PATHB, C_QUANT, C_RESETMAX, C_LOAD, C_SAVE, C_NAME, C_NLEFT,
-       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, C_LOCK, C_SQRUN, C_DEGAUSS, C_INIT, C_RAND, NCMD };
+       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, C_LOCK, C_SQRUN, C_DEGAUSS, C_INIT, C_RAND,
+       C_TUNDN, C_TUNUP, C_SCLDN, C_SCLUP, C_ROOTDN, C_ROOTUP, NCMD };
 static int32_t kn_old;                         /* a value as it was before the finger moved it (VOICE ROOT: the held
                                                    paths move with it) */   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
                                                    page); a Disk file (a = its slot); a crosspoint of the mod or gate
@@ -79,7 +80,8 @@ static int touch_take(int32_t *act, int32_t *x16, int32_t *y16)
 /* (Disk) a patch named on the phone's own keyboard: the engine asks (nm_ask: the slot), the app shows its dialog and
  * answers (nm_done: 1 a name in nm_name, 2 cancelled) */
 static volatile uint32_t nm_ask, nm_shown, nm_done;
-static volatile uint32_t pn_route, pn_st_dn[2], pn_st_up[2];   /* (the keyboard's buttons: the split, strike 1 and 2) */
+static volatile uint32_t pn_route, pn_st_dn[2], pn_st_up[2];
+static _Atomic uint32_t pn_flip[2];             /* (the lights over the keyboard: cells of each grid's row to turn over) */   /* (the keyboard's buttons: the split, strike 1 and 2) */
 static volatile uint32_t vt_kick;                /* a recording to start now, the page not frozen (1..3, as vt_smp) */
 static uint32_t vt_cf_t0, vt_cf_on;              /* (the save's confirmation: the sound faded a moment) */
 static void vt_saved(void);                    /* (android_touch.c) a patch saved: the drive heard, vintage or not */
