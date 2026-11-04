@@ -10,7 +10,9 @@ The firmware runs on the phone with its sound and its own screen, played by touc
 buttons are gone; each page's footer is a row of command words) and the 27-key keyboard under it: the header, the Index,
 every page's K1-K4 values (slide bar or tap-to-step), pins in the mod and gate matrices, the Modulators page (tabs; FGs dragged by their peak and end; four drawable
 breakpoint envelopes), drag-scrolling for the Disk, the matrices and the piano roll,
-and Global: VDU with the scanline settings. New pages are drawn in line by line, as on the FM-1.
+and Global: VDU with the scanline settings. New pages are drawn in line by line, as on the FM-1. Patches are named
+with the phone's own keyboard. The phone has its own tunings table (`engine/android/gen_tunings.py`): Quorum's, with
+Wendy Carlos's Superjust, the 22-EDO temperaments' scales and scales for the tunings that had none.
 
 ## Installing a build
 

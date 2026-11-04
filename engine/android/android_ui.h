@@ -13,7 +13,7 @@ enum { T_KNOB, T_PAGE, T_DISK, T_MOD, T_GMAT, T_OPT, T_TAB, T_FGSHAPE, T_FGPEAK,
  * REC, SEQ, OCT did on that page; a few were the ALGORITHM / PRESETS encoders' */
 enum { C_SEED, C_FIRE, C_FILT, C_ROUTE, C_FREE, C_F0, C_ROOT, C_N, C_KEYS, C_GATE, C_REC, C_AUTO, C_CLEAR, C_NOFB,
        C_PHSLOW, C_DCLEAR, C_FREEZE, C_RVRATE, C_PATHA, C_PATHB, C_QUANT, C_RESETMAX, C_LOAD, C_SAVE, C_NAME, C_NLEFT,
-       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, C_LOCK, C_SQRUN, C_DEGAUSS, NCMD };
+       C_NRIGHT, C_NSPACE, C_NOK, C_NCANCEL, C_BANK, C_LOCK, C_SQRUN, C_DEGAUSS, C_INIT, C_RAND, NCMD };
 static int32_t kn_old;                         /* a value as it was before the finger moved it (VOICE ROOT: the held
                                                    paths move with it) */   /* a knob's value (a = K1..K4: 0..3); an Index line (a = the
                                                    page); a Disk file (a = its slot); a crosspoint of the mod or gate
@@ -76,6 +76,10 @@ static int touch_take(int32_t *act, int32_t *x16, int32_t *y16)
     return 1;
 }
 
+/* (Disk) a patch named on the phone's own keyboard: the engine asks (nm_ask: the slot), the app shows its dialog and
+ * answers (nm_done: 1 a name in nm_name, 2 cancelled) */
+static volatile uint32_t nm_ask, nm_shown, nm_done;
+static char nm_name[9];
 static void cmd_label(uint32_t id, char *s);   /* (android_touch.c) a command word as it reads now */
 static uint32_t shown_page = 0xFFFFFFFFu, shown_sub;   /* the page the screen is drawing (frozen while the disk runs) */
 static const char *vt_message(void);           /* (android_touch.c) the header's line while the disk runs */

@@ -21,6 +21,8 @@ uint64_t quorum_glow(void);
 void quorum_copy_screen(uint32_t *argb);
 void quorum_crt(uint8_t *intensity, uint8_t *rgba, int32_t *gain);
 void quorum_touch(int32_t act, float x, float y);
+int32_t quorum_name_ask(char *out);
+void quorum_name_set(const char *s, int32_t ok);
 }
 
 #define TAG "Quorum"
@@ -132,3 +134,19 @@ JNI void JNICALL FN(crt)(JNIEnv *env, jclass, jobject intensity, jobject ramp, j
 }
 // a finger on the screen: act 0 down, 1 move, 2 up; x, y on the glass in the firmware's pixels (0 .. 240)
 JNI void JNICALL FN(touch)(JNIEnv *, jclass, jint act, jfloat x, jfloat y) { quorum_touch(act, x, y); }
+// the Disk's naming on the phone's keyboard: the name the engine wants typed (null: none), and the answer
+JNI jstring JNICALL FN(nameAsk)(JNIEnv *env, jclass) {
+    char n[9] = {0};
+    if (!quorum_name_ask(n)) return nullptr;
+    n[8] = 0;
+    return env->NewStringUTF(n);
+}
+JNI void JNICALL FN(nameSet)(JNIEnv *env, jclass, jstring name, jboolean ok) {
+    char n[9] = {0};
+    if (name) {
+        const char *s = env->GetStringUTFChars(name, nullptr);
+        for (int i = 0; i < 8 && s[i]; i++) n[i] = s[i];
+        env->ReleaseStringUTFChars(name, s);
+    }
+    quorum_name_set(n, ok ? 1 : 0);
+}

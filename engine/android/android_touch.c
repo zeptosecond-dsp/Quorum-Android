@@ -431,9 +431,11 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     case C_RVRATE: s_cat(s, P.rv.rate ? "11K" : "22K"); break;
     case C_QUANT: s_cat(s, qsel ? "QUANT B " : "QUANT A "); s_cat(s, P.qon[qsel & 1u] ? "ON" : "OFF"); break;
     case C_RESETMAX: s_cat(s, "RESET MAX"); break;
-    case C_LOAD: s_cat(s, pconf == PC_LOAD ? "LOAD?" : "LOAD"); break;
+    case C_LOAD: s_cat(s, pconf == PC_LOAD && pcur != 0u ? "LOAD?" : "LOAD"); break;
     case C_SAVE: s_cat(s, pconf == PC_SAVE ? "SAVE?" : "SAVE"); break;
     case C_NAME: s_cat(s, "NAME"); break;
+    case C_INIT: s_cat(s, pcur == 0u && pconf == PC_LOAD ? "INIT?" : "INIT"); break;
+    case C_RAND: s_cat(s, "RAND"); break;
     case C_NLEFT: s_cat(s, "<"); break;
     case C_NRIGHT: s_cat(s, ">"); break;
     case C_NSPACE: s_cat(s, "SPACE"); break;
@@ -444,14 +446,81 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     default: break;
     }
 }
+/* ---- (Disk) naming on the phone's keyboard */
+static uint32_t nm_after, t_nm_after;           /* a file saved new: its name asked for next */
+static void nm_start(uint32_t slot)
+{
+    uint32_t i;
+    if (slot == 0u || slot == P_RANDOM) { pmsg = "SYSTEM FILE"; t_msg = fm1_ms; return; }
+    if (slot > NPATCH || !pused[slot]) { pmsg = "EMPTY SLOT: SAVE FIRST"; t_msg = fm1_ms; return; }
+    for (i = 0; i < 8u; i++) nm_name[i] = pname[slot][i];
+    nm_name[8] = 0;
+    nm_done = 0; nm_shown = 0; pconf = PC_NONE; pmsg = "";
+    atomic_thread_fence(memory_order_release);
+    nm_ask = slot;
+}
+static void nm_poll(void)                       /* each pass: a name come back from the app; a new file to name */
+{
+    if (nm_after) {
+        if (!t_nm_after || vt_busy) t_nm_after = fm1_ms;   /* (the drive first, if it runs: then the name) */
+        if (vt_busy) return;
+        if (pused[nm_after] && ploaded == nm_after) { nm_start(nm_after); nm_after = 0; t_nm_after = 0; }
+        else if (fm1_ms - t_nm_after > 1500u) { nm_after = 0; t_nm_after = 0; }   /* (it didn't save) */
+    }
+    if (nm_ask && nm_done) {
+        atomic_thread_fence(memory_order_acquire);
+        if (nm_done == 1u) {
+            char n[8];
+            uint32_t i;
+            for (i = 0; i < 8u; i++) n[i] = nm_name[i] ? nm_name[i] : ' ';
+            if (name_blank(n)) name_default(n, nm_ask);
+            pmsg = patch_rename(nm_ask, n) == 0 ? "NAMED" : "NAMING FAILED";
+            t_msg = fm1_ms;
+            vt_disk(1u, 1u);                    /* (vintage: the drive writes it) */
+        }
+        nm_ask = 0; nm_done = 0;
+    }
+}
+/* the app: a name wanted? (the slot, once, and the name as it is: 8 letters) */
+int32_t quorum_name_ask(char *out)
+{
+    uint32_t i, s = nm_ask;
+    if (!s || nm_shown || nm_done) return 0;
+    atomic_thread_fence(memory_order_acquire);
+    for (i = 0; i < 9u; i++) out[i] = nm_name[i];
+    nm_shown = 1;
+    return (int32_t)s;
+}
+/* the app: the name typed (ok), or the dialog closed (!ok). Letters the disk can't keep become spaces */
+void quorum_name_set(const char *s, int32_t ok)
+{
+    uint32_t i, k, end = 0;
+    if (!nm_ask) return;
+    for (i = 0; i < 8u; i++) {
+        char c = end || !s ? 0 : s[i];
+        if (!c) end = 1;
+        if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+        for (k = 0; k < NCHARS && NAME_CH[k] != c; k++) {}
+        nm_name[i] = c && k < NCHARS ? c : ' ';
+    }
+    nm_name[8] = 0;
+    atomic_thread_fence(memory_order_release);
+    nm_done = ok ? 1u : 2u;
+}
+
 static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the FM-1's press, or the switch itself */
 {
     switch (t->a) {
     case C_SEED: case C_FIRE: case C_KEYS: case C_GATE: case C_NOFB: case C_DCLEAR: case C_FREEZE: case C_QUANT:
-    case C_RESETMAX: case C_NAME: case C_NCANCEL:
-        *b |= 1u << BTN_PLAY; break;            /* (what PLAY did on this page) */
+    case C_RESETMAX: case C_NCANCEL:
+        *b |= 1u << BTN_PLAY; break;
+    case C_NAME: nm_start(pcur); break;         /* (the phone's keyboard) */
+    case C_INIT: if (pcur != 0u) { pcur = 0; pconf = PC_NONE; } *b |= 1u << BTN_SEL; pmsg = ""; break;   /* (twice: INIT, LOAD?) */
+    case C_RAND: pcur = P_RANDOM; pconf = PC_LOAD; *b |= 1u << BTN_SEL; break;   /* (a new roll each tap) */            /* (what PLAY did on this page) */
     case C_F0: case C_LOAD: case C_BANK: *b |= 1u << BTN_SEL; break;   /* (SEL: a page's banks, VOICE's F0, the Disk's load) */
-    case C_SAVE: case C_NOK: *b |= 1u << BTN_SAVE; break;
+    case C_SAVE: if (pcur >= 1u && pcur <= NPATCH && !pused[pcur]) nm_after = pcur;   /* (a new file: then its name) */
+        /* fall through */
+    case C_NOK: *b |= 1u << BTN_SAVE; break;
     case C_REC: *b |= 1u << BTN_REC; break;
     case C_CLEAR: *b |= 1u << BTN_SEQ; break;   /* (twice in 2 s: clear) */
     case C_NLEFT: *b |= 1u << BTN_OCT_DOWN; break;
@@ -567,6 +636,7 @@ static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
     vt_poll();
+    nm_poll();
     if (vt_busy) {                              /* (the machine is busy: touches go nowhere) */
         while (touch_take(&act, &x16, &y16)) { pen_x = x16 >> 4; pen_y = y16 >> 4; pen_t = fm1_ms; pen_down = act != TE_UP; }
         TS.scroll = TS.pending = 0; TB.drag = 0; TM.mode = 0; TK.mode = 0; TG.on = 0; kc_place = 0;

@@ -47,7 +47,11 @@ static void app_idle(void);
 #include "luts.h"
 #include "ca_tables.h"
 #include "q_tables.h"
+#ifdef QUORUM_ANDROID
+#include "tunings_android.h"                  /* (the phone's: SUPERJUST, more scales; engine/android/gen_tunings.py) */
+#else
 #include "tunings.h"
+#endif
 
 static int32_t cl(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int32_t iabs(int32_t v) { return v < 0 ? -v : v; }
@@ -3664,7 +3668,7 @@ static int patch_save(uint32_t slot)            /* 1..16 */
     for (k = 0; k < sizeof pbank[j].raw; k++) pbank[j].raw[k] = 0;
     q->tag = PATCH_TAG; q->ver = 1; q->used = 1;
 #ifdef QUORUM_ANDROID
-    q->ver = 2;
+    q->ver = 3;                                 /* (3: the phone's tunings, SUPERJUST second) */
     for (k = 0; k < NGS; k++) q->gm_hi[k] = (uint16_t)(P.gmat[k] >> 16);
     for (k = 0; k < NEG; k++) q->eg[k] = P.eg[k];
     for (k = 0; k < NSEQ; k++) q->sq_stop[k] = P.sq_stop[k];
@@ -3701,6 +3705,7 @@ static int patch_load(uint32_t slot)            /* 0 = INIT, P_RANDOM = roll the
         for (d = 0; d < NDST && d < q->ndst && d < 48u; d++) P.dep[k][d] = (int8_t)cl(q->dep[k][d], -63, 63);
     for (k = 0; k < NGS && k < q->ngs && k < 32u; k++) P.gmat[k] = q->gm[k];
 #ifdef QUORUM_ANDROID
+    if (q->ver < 3u && P.tun >= 1u && P.tun < NTUN - 1u) P.tun++;   /* (older: no SUPERJUST, which came in after 12-TET) */
     if (q->ver >= 2u) {                         /* (an older patch: INIT's envelopes, nothing pinned past 16) */
         for (k = 0; k < NGS && k < q->ngs && k < 32u; k++) P.gmat[k] |= (uint32_t)q->gm_hi[k] << 16;
         for (k = 0; k < NEG; k++) P.eg[k] = q->eg[k];
@@ -3781,9 +3786,10 @@ static void draw_disk(void)
     } else {
         if (*pmsg) cv_text(4, 152, &FONT_S, pmsg, PH_HI);
         else if (pconf == PC_SAVE) cv_text(4, 152, &FONT_S, "SAVE AGAIN: OVERWRITE", PH_HI);
-        else if (pconf == PC_LOAD) cv_text(4, 152, &FONT_S, cur == P_RANDOM ? "LOAD AGAIN: ROLL THE DICE" : "LOAD AGAIN: LOAD IT", PH_HI);
+        else if (pconf == PC_LOAD) cv_text(4, 152, &FONT_S, cur == P_RANDOM ? "LOAD AGAIN: ROLL THE DICE" : cur == 0u ? "AGAIN: START FROM INIT" : "LOAD AGAIN: LOAD IT", PH_HI);
+        if (nm_ask) cv_text(4, 152, &FONT_S, "NAMING: TYPE THE NAME", PH_HI);
         cv_text(4, 176, &FONT_S, "TAP A FILE, THEN A COMMAND", PH_LO);
-        CMDS(C_LOAD, C_SAVE, C_NAME);
+        CMDS(C_LOAD, C_SAVE, C_NAME, C_INIT, C_RAND);
     }
 #else
     if (p_ren) {

@@ -34,6 +34,11 @@ object Native {
     /** A finger on the screen: [act] 0 down, 1 move, 2 up; [x], [y] on the glass in the firmware's pixels (0..240). */
     @JvmStatic external fun touch(act: Int, x: Float, y: Float)
 
+    /** The Disk wants a patch named: the name as it is now (8 letters), once; null when not. */
+    @JvmStatic external fun nameAsk(): String?
+    /** The name typed ([ok]), or the dialog closed without one. */
+    @JvmStatic external fun nameSet(name: String?, ok: Boolean)
+
     // the FM-1's ids (firmware/src/platform.c)
     const val BTN_OCT_DOWN = 0
     const val BTN_OCT_UP = 1
