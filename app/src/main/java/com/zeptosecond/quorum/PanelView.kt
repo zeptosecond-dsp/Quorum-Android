@@ -4,6 +4,7 @@ package com.zeptosecond.quorum
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.view.MotionEvent
@@ -14,6 +15,8 @@ import android.view.View
  * panel, each raised key ringed in red, a red band along the top. On the band: STRIKE 1 at the far left, the split
  * the keys play (A, A+B, B) in the middle, STRIKE 2 at the far right, all plates like the keys. Over the rule, above
  * STRIKE 2, VINTAGE: the disk and the tube's faults all on or all off at once (off: a clean screen to set them from).
+ * Over the rule at the left, the arrows and SELECT: a box moved between what can be touched on the screen, SELECT a tap
+ * on it (for when the tube is too far gone to aim at); a value opened, a slider over them sets it.
  * The 27 keys are the FM-1's (F3 .. G5), plain plates: the grids show in the lights above.
  * Above it all, on black under a thin navy rule: each grid's row now as square red lights, A on the left, B on the
  * right; touched (or swept) they turn over, as the cells on the Grids page. While an FG is chosen (its page, or its
@@ -43,8 +46,15 @@ class PanelView(context: Context) : View(context) {
     // F3 .. G5: bit 0 .. 26
     private val keys = (0 until 27).map { Key(it, (5 + it) % 12 in setOf(1, 3, 6, 8, 10)) }
     private val btns = listOf(Btn("STRIKE 1", 10), Btn("A", 1), Btn("A+B", 2), Btn("B", 3), Btn("STRIKE 2", 11),
-        Btn("VINTAGE", 20))                    // (over the rule, above STRIKE 2: the disk and the tube's faults, all at once)
+        Btn("VINTAGE", 20),                    // (over the rule, above STRIKE 2: the disk and the tube's faults, all at once)
+        Btn("", 30), Btn("", 31), Btn("SELECT", 34), Btn("", 32), Btn("", 33))   // (over the rule, at the left: left, up,
+                                                // SELECT, down, right: the screen without touching it; 30.. as Native.nav)
     private val band = RectF()
+    private val slider = RectF()                // (the open value's slider, over the arrows)
+    private val sliding = HashSet<Int>()        // fingers on it
+    private val tri = Path()
+    private var navHeld: Btn? = null            // an arrow held: it repeats
+    private var navNext = 0L
     private val strip = RectF()                 // the lights' row
     private val rule = RectF()                  // the thin navy line over it
     private val ledX = FloatArray(2)            // where each grid's 32 lights start
@@ -61,7 +71,8 @@ class PanelView(context: Context) : View(context) {
         val bandH = minOf(46f * d, h * 0.22f)
         // the keys no taller than a real keyboard's proportions; room above for the band, the lights and their rule
         val vbH = minOf(34f * d, bandH - 12f * d)   // the VINTAGE plate, as tall as the band's
-        val kh = maxOf(20f * d, minOf(h - 6 * pad - bandH - 26f * d - vbH, kw * 5.5f))
+        val slH = 22f * d                       // the slider's row, over the arrows (shown while a value is open)
+        val kh = maxOf(20f * d, minOf(h - 8 * pad - bandH - 26f * d - vbH - slH, kw * 5.5f))
         val bottom = h - pad
         val top = bottom - kh
         band.set(0f, top - pad - bandH, w.toFloat(), top - pad)
@@ -91,6 +102,17 @@ class PanelView(context: Context) : View(context) {
         val x0 = w / 2f - (3 * mw + 2 * gap) / 2f
         for (i in 0..2) btns[1 + i].r.set(x0 + i * (mw + gap), by, x0 + i * (mw + gap) + mw, by + bh)
         btns[5].r.set(w - pad - sw, rule.top - pad - vbH, w - pad, rule.top - pad)
+        // the arrows and SELECT: left, up, SELECT, down, right, along the left
+        val aw = minOf(44f * d, w * 0.085f)
+        val selW = minOf(84f * d, w * 0.17f)
+        val ag = 6f * d
+        var x = pad
+        for (i in 6..10) {
+            val bw = if (i == 8) selW else aw
+            btns[i].r.set(x, rule.top - pad - vbH, x + bw, rule.top - pad)
+            x += bw + ag
+        }
+        slider.set(pad, btns[6].r.top - pad - slH, x - ag, btns[6].r.top - pad)
         text.textSize = minOf(bh * 0.42f, 15f * d)
     }
 
@@ -116,17 +138,24 @@ class PanelView(context: Context) : View(context) {
         fill.color = red
         canvas.drawRect(band, fill)
         btns.forEach { b ->
-            val on = when (b.act) { in 1..3 -> b.act == route; 10 -> lit and 1 != 0; 20 -> vint; else -> lit and 2 != 0 }
+            val nav = b.act >= 30                   // (the arrows, SELECT: plain plates, no state)
+            val on = when (b.act) { in 1..3 -> b.act == route; 10 -> lit and 1 != 0; 20 -> vint; 11 -> lit and 2 != 0; else -> false }
             val down = pressed.containsValue(b)
             fill.color = navyDeep
             canvas.drawRect(b.r.left - 1.5f * d, b.r.top - 1.5f * d, b.r.right + 1.5f * d, b.r.bottom + 1.5f * d, fill)
-            ribbed(canvas, b.r, if (down) platePress else if (on) plate else plateDim)
+            ribbed(canvas, b.r, if (down) platePress else if (on || nav) plate else plateDim)
             if (on) {                           // chosen: a red bar along its foot
                 fill.color = red
                 canvas.drawRect(b.r.left + 4f * d, b.r.bottom - 5f * d, b.r.right - 4f * d, b.r.bottom - 2.5f * d, fill)
             }
             text.color = navyDeep
-            canvas.drawText(b.label, b.r.centerX(), b.r.centerY() + text.textSize * 0.36f, text)
+            if (b.act in 30..33) arrow(canvas, b)
+            else canvas.drawText(b.label, b.r.centerX(), b.r.centerY() + text.textSize * 0.36f, text)
+        }
+        drawSlider(canvas)
+        navHeld?.let { b ->                     // an arrow held: again, every so often
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now >= navNext) { Native.nav(NAV_DIR[b.act - 30]); navNext = now + 110L }
         }
 
         // the keys: the long plates, then the raised ones ringed in red
@@ -196,6 +225,45 @@ class PanelView(context: Context) : View(context) {
         }
     }
 
+    private val NAV_DIR = intArrayOf(2, 0, 1, 3) // the plates (left, up, down, right) to Native.nav's (up, down, left, right)
+
+    private fun arrow(c: Canvas, b: Btn) {      // the arrow on its plate (30 left, 31 up, 32 down, 33 right)
+        val cx = b.r.centerX(); val cy = b.r.centerY() - 1.5f * d; val r = minOf(b.r.width(), b.r.height()) * 0.2f
+        tri.reset()
+        when (b.act) {
+            30 -> { tri.moveTo(cx - r, cy); tri.lineTo(cx + r * 0.8f, cy - r); tri.lineTo(cx + r * 0.8f, cy + r) }
+            33 -> { tri.moveTo(cx + r, cy); tri.lineTo(cx - r * 0.8f, cy - r); tri.lineTo(cx - r * 0.8f, cy + r) }
+            31 -> { tri.moveTo(cx, cy - r); tri.lineTo(cx - r, cy + r * 0.8f); tri.lineTo(cx + r, cy + r * 0.8f) }
+            else -> { tri.moveTo(cx, cy + r); tri.lineTo(cx - r, cy - r * 0.8f); tri.lineTo(cx + r, cy - r * 0.8f) }
+        }
+        tri.close()
+        fill.color = navyDeep
+        c.drawPath(tri, fill)
+    }
+
+    private fun drawSlider(c: Canvas) {         // the open value: a groove, a ribbed plate on it, a red line at its middle
+        val v = Native.barGet()
+        if (v < 0) { sliding.clear(); return }
+        val tr = slider.height() * 0.32f
+        fill.color = navyDeep
+        c.drawRect(slider.left - 1.5f * d, slider.centerY() - tr - 1.5f * d, slider.right + 1.5f * d, slider.centerY() + tr + 1.5f * d, fill)
+        fill.color = navy
+        c.drawRect(slider.left, slider.centerY() - tr, slider.right, slider.centerY() + tr, fill)
+        val kw = 26f * d
+        val x = slider.left + (slider.width() - kw) * v / 10000f
+        val k = RectF(x, slider.top, x + kw, slider.bottom)
+        fill.color = navyDeep
+        c.drawRect(k.left - 1.5f * d, k.top - 1.5f * d, k.right + 1.5f * d, k.bottom + 1.5f * d, fill)
+        ribbed(c, k, if (sliding.isEmpty()) plate else platePress)
+        fill.color = red
+        c.drawRect(k.centerX() - 1.5f * d, k.top + 3f * d, k.centerX() + 1.5f * d, k.bottom - 3f * d, fill)
+    }
+
+    private fun slideTo(x: Float) {
+        val kw = 26f * d
+        Native.barSet((((x - slider.left - kw / 2f) / (slider.width() - kw)).coerceIn(0f, 1f) * 10000f).toInt())
+    }
+
     private fun keyAt(x: Float, y: Float): Key? =
         keys.firstOrNull { it.black && it.r.contains(x, y) } ?: keys.firstOrNull { !it.black && it.r.contains(x, y) }
 
@@ -232,13 +300,16 @@ class PanelView(context: Context) : View(context) {
     private fun press(b: Btn) {
         when (b.act) {
             in 1..3 -> Native.route(b.act)
+            in 30..33 -> { Native.nav(NAV_DIR[b.act - 30]); navHeld = b; navNext = android.os.SystemClock.uptimeMillis() + 380L }
+            34 -> Native.navSelect()
             20 -> Native.vintage(!Native.vintageGet())
             10, 11 -> Native.strike(b.act - 10, true)
         }
     }
 
     private fun release(b: Btn) {
-        if (b.act >= 10) Native.strike(b.act - 10, false)
+        if (navHeld === b) navHeld = null
+        if (b.act == 10 || b.act == 11) Native.strike(b.act - 10, false)
     }
 
     override fun onTouchEvent(ev: MotionEvent): Boolean {
@@ -247,13 +318,17 @@ class PanelView(context: Context) : View(context) {
                 val i = ev.actionIndex
                 val id = ev.getPointerId(i)
                 val b = btnAt(ev.getX(i), ev.getY(i))
-                if (b != null) { pressed[id] = b; press(b) }
+                val onSlider = Native.barGet() >= 0 && ev.getY(i) >= slider.top - 8f * d && ev.getY(i) <= slider.bottom + 4f * d &&
+                    ev.getX(i) >= slider.left - 8f * d && ev.getX(i) <= slider.right + 8f * d
+                if (onSlider && b == null) { sliding.add(id); slideTo(ev.getX(i)) }
+                else if (b != null) { pressed[id] = b; press(b) }
                 else if (ev.getY(i) < band.top) { swept[id] = -1; sweep(id, ev.getX(i), ev.getY(i)) }
                 else { held[id] = keyAt(ev.getX(i), ev.getY(i)); sendKeys() }
             }
             MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until ev.pointerCount) {
                     val id = ev.getPointerId(i)
+                    if (sliding.contains(id)) { slideTo(ev.getX(i)); continue }
                     if (swept.containsKey(id)) { sweep(id, ev.getX(i), ev.getY(i)); continue }
                     if (!held.containsKey(id)) continue
                     val k = keyAt(ev.getX(i), ev.getY(i))
@@ -263,13 +338,14 @@ class PanelView(context: Context) : View(context) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 val id = ev.getPointerId(ev.actionIndex)
                 pressed.remove(id)?.let { release(it) }
+                sliding.remove(id)
                 swept.remove(id)
                 held.remove(id)
                 sendKeys()
             }
             MotionEvent.ACTION_CANCEL -> {
                 pressed.values.forEach { release(it) }
-                pressed.clear(); held.clear(); swept.clear(); sendKeys()
+                pressed.clear(); held.clear(); swept.clear(); sliding.clear(); navHeld = null; sendKeys()
             }
         }
         return true

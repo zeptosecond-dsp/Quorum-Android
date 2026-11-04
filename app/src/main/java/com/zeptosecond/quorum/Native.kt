@@ -56,6 +56,12 @@ object Native {
     /** VINTAGE (the button over the keyboard): the disk and the tube's faults, all on or all off at once. */
     @JvmStatic external fun vintage(on: Boolean)
     @JvmStatic external fun vintageGet(): Boolean
+    /** The arrows over the keyboard: move the box (0 up, 1 down, 2 left, 3 right); SELECT taps what it is on. */
+    @JvmStatic external fun nav(dir: Int)
+    @JvmStatic external fun navSelect()
+    /** The open value's slider: its place 0..10000, or -1 (no value open); set it. */
+    @JvmStatic external fun barGet(): Int
+    @JvmStatic external fun barSet(f: Int)
 
     // the FM-1's ids (firmware/src/platform.c)
     const val BTN_OCT_DOWN = 0

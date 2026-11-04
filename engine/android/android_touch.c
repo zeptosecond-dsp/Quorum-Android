@@ -762,12 +762,128 @@ int32_t quorum_vintage_get(void) { return pn_vint ? (int32_t)(pn_vint == 2u) : (
 /* the strikes' gates, for the buttons' glow */
 int32_t quorum_strike_lit(void) { return (int32_t)((kgate_v[0] ? 1u : 0u) | (kgate_v[1] ? 2u : 0u)); }
 
+/* ---- the arrows and SELECT over the keyboard (PanelView.kt): a box moved between what can be touched, SELECT a tap
+ * on it; a value's slide bar open, a slider beside them sets it */
+static _Atomic uint32_t nav_q[4];               /* (the app: presses not yet seen; up, down, left, right) */
+static volatile int32_t nav_cx = -1, nav_cy;    /* the box's middle (screen pixels x 16), for SELECT's tap */
+static int32_t nav_fx = -1, nav_fy;             /* where the box is (its middle) */
+static uint32_t nav_pg = 0xFFFFFFFFu, nav_sb;
+static volatile int32_t bar_req = -1;           /* (the app's slider: 0..10000, to apply) */
+static uint32_t nav_parts(tgt_t *c)             /* what the box can go to: the page's targets, the header's parts */
+{
+    uint32_t n = 0, i;
+    char s[40];
+    int32_t pw, tw;
+    {
+        char p[12] = "PAGE ";
+        s_cat(p, page_num(page, sub));
+        pw = 4 + text_w(&FONT_S, p) + 6;
+        header_title(s);
+        tw = 4 + text_w(&FONT_S, s);
+    }
+    if (page != PG_INDEX) {                     /* (as header_tap: PAGE n home, the title the next part, its end a bank) */
+        tgt_t h = {0, 0, (int16_t)pw, (int16_t)BODY_Y, 0xF0, 0, 0};
+        c[n++] = h;
+        if (page == PG_MOD || page == PG_GMAT || (page_subs(page) > 1u && !(page == PG_SEQ && sub >= NSEQ))) {
+            tgt_t t = {(int16_t)pw, 0, (int16_t)(tw - pw), (int16_t)BODY_Y, 0xF1, 0, 0}; c[n++] = t;
+        }
+        if (page_banks(page, sub) > 1u && tw < 236) { tgt_t t = {(int16_t)tw, 0, (int16_t)(240 - tw), (int16_t)BODY_Y, 0xF2, 0, 0}; c[n++] = t; }
+    }
+    for (i = 0; i < tgt_n && n < NTGT + 3u; i++) c[n++] = tgt[i];
+    return n;
+}
+static void nav_set(const tgt_t *t)
+{
+    nav_fx = t->x + t->w / 2; nav_fy = t->y + t->h / 2;
+    nav_r[0] = t->x; nav_r[1] = t->y; nav_r[2] = t->w; nav_r[3] = t->h;
+    nav_hdr = t->kind >= 0xF0u ? t->kind - 0xEFu : 0u;
+    nav_cx = nav_fx * 16 + 8; nav_cy = nav_fy * 16 + 8;
+}
+static void nav_poll(void)                      /* each pass: the box kept on something; the arrows' presses */
+{
+    static tgt_t c[NTGT + 3];
+    uint32_t n, i, d, hdr0 = nav_hdr;
+    int32_t best, bs;
+    if (nav_hide) { nav_hide = 0; nav_on = 0; if (hdr0) hdr_force = 1; }
+    if (bar_req >= 0) {                         /* the slider: the open value set */
+        int32_t f = bar_req;
+        bar_req = -1;
+        if (TB.open && TB.pg == page && TB.sb == sub && TB.bk == bank) {
+            kn_t *k;
+            int32_t v;
+            knobs_for(page, sub, bank);
+            k = &KN[TB.knob];
+            v = k->lo + (int32_t)(((int64_t)f * (k->hi - k->lo) + 5000) / 10000);
+            if (v != kn_get(k)) { kn_old = kn_get(k); kn_put(k, v); after_change(page, sub, TB.knob, bank); knobs_for(page, sub, bank); }
+            TB.acc = (float)v;
+        }
+    }
+    n = nav_parts(c);
+    if (!n) return;
+    if (page != nav_pg || sub != nav_sb || nav_fx < 0) {   /* a new page: the box on its first thing */
+        uint32_t keep = nav_fx >= 0 && nav_pg != 0xFFFFFFFFu && page == nav_pg && nav_hdr ? 0xEFu + nav_hdr : 0u;   /* (a
+                                                   part flipped from the header: the box stays on it) */
+        nav_pg = page; nav_sb = sub;
+        for (i = 0; i < n && (keep ? c[i].kind != keep : c[i].kind >= 0xF0u); i++) {}
+        if (keep && i >= n) for (i = 0; i < n && c[i].kind >= 0xF0u; i++) {}
+        nav_set(&c[i < n ? i : 0]);
+    }
+    best = -1; bs = 0x7FFFFFFF;                 /* kept on what is there now (the page redrawn, a list scrolled) */
+    for (i = 0; i < n; i++) {
+        int32_t cx = c[i].x + c[i].w / 2, cy = c[i].y + c[i].h / 2, sc;
+        if (nav_fx >= c[i].x && nav_fx < c[i].x + c[i].w && nav_fy >= c[i].y && nav_fy < c[i].y + c[i].h) sc = c[i].w * c[i].h - 1000000;
+        else sc = (cx - nav_fx) * (cx - nav_fx) + (cy - nav_fy) * (cy - nav_fy);
+        if (sc < bs) { bs = sc; best = (int32_t)i; }
+    }
+    if (best >= 0) { tgt_t t = c[best]; int32_t fx = nav_fx, fy = nav_fy; nav_set(&t); if (bs < 0) { nav_fx = fx; nav_fy = fy; } }
+    for (d = 0; d < 4u; d++) {
+        uint32_t k = atomic_exchange(&nav_q[d], 0u);
+        while (k--) {
+            if (!nav_on) { nav_on = 1; continue; }   /* (the first press: the box shown where it is) */
+            best = -1; bs = 0x7FFFFFFF;
+            for (i = 0; i < n; i++) {           /* the nearest that way: along it, and not far off to the side */
+                int32_t cx = c[i].x + c[i].w / 2, cy = c[i].y + c[i].h / 2, along, side, sc;
+                along = d == 0u ? nav_fy - cy : d == 1u ? cy - nav_fy : d == 2u ? nav_fx - cx : cx - nav_fx;
+                side = d < 2u ? cx - nav_fx : cy - nav_fy;
+                if (d < 2u && nav_fx >= c[i].x && nav_fx < c[i].x + c[i].w) side = 0;   /* (a wide row straight below) */
+                if (d >= 2u && nav_fy >= c[i].y && nav_fy < c[i].y + c[i].h) side = 0;
+                if (along < 3) continue;
+                sc = along + 3 * (side < 0 ? -side : side);
+                if (sc < bs) { bs = sc; best = (int32_t)i; }
+            }
+            if (best >= 0) nav_set(&c[best]);
+            else if (d < 2u && (page == PG_PATCH || page == PG_MOD || page == PG_GMAT))   /* (off a list's end: it scrolls) */
+                atomic_fetch_add(&q_enc[ENC_SELECT], d == 0u ? -1 : 1);
+        }
+    }
+    if (nav_hdr != hdr0) hdr_force = 1;
+}
+/* the app: an arrow pressed (0 up, 1 down, 2 left, 3 right); SELECT (a tap on the box: on the app's thread, as a finger) */
+void quorum_nav(int32_t d) { atomic_fetch_add(&nav_q[d & 3], 1u); }
+void quorum_nav_select(void)
+{
+    int32_t x = nav_cx, y = nav_cy;
+    if (!nav_on || x < 0) { nav_on = 1; return; }
+    q_touch_put(0, x, y); q_touch_put(2, x, y);
+}
+/* the slider: the open value's place (0..10000), or -1 (no value open); set it */
+int32_t quorum_bar_get(void)
+{
+    kn_t *k;
+    if (!TB.open || TB.pg != page || TB.sb != sub || TB.bk != bank) return -1;
+    k = &KN[TB.knob % (sizeof KN / sizeof KN[0])];
+    if (k->hi <= k->lo) return -1;
+    return (int32_t)((int64_t)(kn_get(k) - k->lo) * 10000 / (k->hi - k->lo));
+}
+void quorum_bar_set(int32_t f) { bar_req = f < 0 ? 0 : f > 10000 ? 10000 : f; }
+
 static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
     vt_poll();
     nm_poll();
     panel_poll();
+    nav_poll();
     if (vt_busy) {                              /* (the machine is busy: touches go nowhere) */
         while (touch_take(&act, &x16, &y16)) { pen_x = x16 >> 4; pen_y = y16 >> 4; pen_t = fm1_ms; pen_down = act != TE_UP; }
         TS.scroll = TS.pending = 0; TB.drag = 0; TM.mode = 0; TK.mode = 0; TG.on = 0; kc_place = 0;
@@ -866,6 +982,12 @@ static void touch_draw(void)                    /* on the body's canvas (y from 
             st = iabs(x1 - x0) > iabs(y1 - y0) ? iabs(x1 - x0) : iabs(y1 - y0);
             for (j = 0; j <= st; j++) cv_pset(x0 + (st ? (x1 - x0) * j / st : 0), y0 + (st ? (y1 - y0) * j / st : 0), PH_LO);
         }
+    }
+    if (nav_on && nav_fx >= 0 && !nav_hdr && !(TB.open && TB.pg == page && TB.sb == sub)) {   /* the arrows' box: corners */
+        int32_t x0 = nav_r[0] - 1, y0 = nav_r[1] - BODY_Y - 1, x1 = nav_r[0] + nav_r[2], y1 = nav_r[1] + nav_r[3] - BODY_Y, l = 5;
+        if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > 239) x1 = 239; if (y1 > BODY_H - 1) y1 = BODY_H - 1;
+        cv_rect(x0, y0, l, 1, PH_HI); cv_rect(x0, y0, 1, l, PH_HI); cv_rect(x1 - l + 1, y0, l, 1, PH_HI); cv_rect(x1, y0, 1, l, PH_HI);
+        cv_rect(x0, y1, l, 1, PH_HI); cv_rect(x0, y1 - l + 1, 1, l, PH_HI); cv_rect(x1 - l + 1, y1, l, 1, PH_HI); cv_rect(x1, y1 - l + 1, 1, l, PH_HI);
     }
     if (!TB.open || TB.pg != page || TB.sb != sub || TB.bk != bank) return;
     knobs_for(page, sub, bank);

@@ -169,16 +169,22 @@ static void aset_load(void)
     aset_t a;
     aset3_t a3;
     aset1_t o;
-    if (q_load("android", -1, &a, sizeof a) == 0 && a.ver == 4u) aset = a;
+    aset_t d = aset;                            /* (the defaults) */
+    if (q_load("android", -1, &a, sizeof a) == 0 && (a.ver == 4u || a.ver == 5u)) aset = a;
     else if (q_load("android", -1, &a3, sizeof a3) == 0 && a3.ver == 3u) {   /* (a file from before the tube's faults) */
         aset.lines = a3.lines; aset.dark = a3.dark; aset.pen = a3.pen; aset.vint = a3.vint; aset.odds = a3.odds;
         aset.drive = a3.drive; aset.burn = a3.burn; aset.persist = a3.persist; aset.draw = a3.draw; aset.warm = a3.warm;
+        aset.cap = 0; aset.fly = 0; aset.ver = 4;
+    }
+    if (aset.ver < 5u && !aset.burn && !aset.persist && !aset.cap && !aset.fly) {   /* (an older file, the tube's age all
+                                                   at nothing: the new defaults' taste of it) */
+        aset.burn = d.burn; aset.persist = d.persist; aset.cap = d.cap; aset.fly = d.fly; aset.warm = d.warm; aset.odds = d.odds;
     }
     else if (q_load("android", -1, &o, sizeof o) == 0 && (o.ver == 1u || o.ver == 2u)) {   /* (an older file: its VDU
                                                    settings kept, the vintage ones as new) */
         aset.lines = o.lines; aset.dark = o.dark; aset.pen = o.ver == 1u ? 1u : o.pen;
     }
-    aset.ver = 4;
+    aset.ver = 5;
     if (aset.cap > 10u) aset.cap = 0; if (aset.fly > 10u) aset.fly = 0;
     if (aset.pen > 1u) aset.pen = 1;
     if (aset.lines > 4u) aset.lines = 2;
@@ -378,12 +384,18 @@ void quorum_copy_screen(uint32_t *argb)
 /* a touch on the screen: act 0 down, 1 move, 2 up; x, y where it landed on the glass, in the firmware's pixels
  * (0 .. 240). The tube bulges the picture, so what is drawn there is a little further out: the same sum as the
  * shader (CrtView.kt), so the finger lands on what it sees. */
+static void q_touch_put(int32_t act, int32_t x16, int32_t y16)   /* (the app's thread only: the one writer) */
+{
+    uint32_t w = atomic_load(&q_te_w);
+    if (w - atomic_load(&q_te_r) >= 128u) return;
+    q_te[w % 128u][0] = act; q_te[w % 128u][1] = x16; q_te[w % 128u][2] = y16;
+    atomic_store_explicit(&q_te_w, w + 1u, memory_order_release);
+}
+static volatile uint32_t nav_hide;              /* (a finger on the glass: the arrows' box away) */
 void quorum_touch(int32_t act, float x, float y)
 {
     float qx = x - 0.5f, qy = y - 0.5f, dx = qx - 120.0f, dy = qy - 120.0f, k2 = 30.0f * (dx * dx + dy * dy);
     float sx = qx + dx * k2 / 16777216.0f + 0.5f, sy = qy + dy * k2 / 16777216.0f + 0.5f;
-    uint32_t w = atomic_load(&q_te_w);
-    if (w - atomic_load(&q_te_r) >= 128u) return;
-    q_te[w % 128u][0] = act; q_te[w % 128u][1] = (int32_t)(sx * 16.0f); q_te[w % 128u][2] = (int32_t)(sy * 16.0f);
-    atomic_store_explicit(&q_te_w, w + 1u, memory_order_release);
+    if (act == 0) nav_hide = 1;
+    q_touch_put(act, (int32_t)(sx * 16.0f), (int32_t)(sy * 16.0f));
 }

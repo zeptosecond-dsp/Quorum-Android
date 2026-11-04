@@ -44,7 +44,8 @@ typedef struct { uint8_t ver, lines, dark, pen; } aset1_t;   /* (the file as bui
 typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, pad; } aset3_t;   /* (before
                                                    CAPACITOR and FLYBACK) */
 typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, cap, fly, pad[3]; } aset_t;
-static aset_t aset = {4, 2, 6, 1, 0, 1, 0, 0, 0, 3, 0, 0, 0, {0, 0, 0}};   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
+static aset_t aset = {5, 2, 6, 1, 0, 1, 0, 2, 2, 3, 1, 2, 1, {0, 0, 0}};   /* (VINTAGE: a taste of everything, ready for
+                                                   the button: DISK OK, a little burn, persistence, capacitor, flyback) */   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
                                                    lightpen's cursor; (Global: VINTAGE) vint: vintage mode (the button over
                                                    the keyboard), off until asked: the disk and the tube's faults all
                                                    with it; odds: the disk's condition, NEW / OK / BAD; drive: 5.25" floppy (recorded) / hard disk; burn, persist: 0..10; draw: the
@@ -96,6 +97,10 @@ static int vt_fail_rw(uint32_t write);                   /* (android_touch.c) a 
                                                    (DISK: OK rarely, BAD often; the access and the error already begun) */
 static uint32_t vt_rep, vt_rep_smp, vt_gap;     /* (the drive trying again: so many more plays of vt_rep_smp, a pause between) */
 static uint32_t vt_err, vt_err_at;              /* (an error: 1 read, 2 write; the ms into the access its flashing starts) */
+static volatile uint32_t nav_on;                /* (the arrows over the keyboard: their box shown; on the header's
+                                                   parts, nav_hdr 1..3; its rect) */
+static uint32_t nav_hdr;
+static int32_t nav_r[4];
 static volatile uint32_t pn_vint;               /* (the VINTAGE button over the keyboard: 1 off, 2 on, asked) */
 static char nm_name[9];
 static void cmd_label(uint32_t id, char *s);   /* (android_touch.c) a command word as it reads now */

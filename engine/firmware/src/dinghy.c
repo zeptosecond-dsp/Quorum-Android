@@ -2114,6 +2114,7 @@ static void draw_header(void)
     cv_begin(240, BODY_Y, PH_BG);
     cv_text(4, 2, &FONT_S, s, PH_HI);
 #ifdef QUORUM_ANDROID
+    if (nav_on && nav_hdr) cv_rect(nav_r[0] + 2, 16, nav_r[2] - 4, 2, PH_HI);   /* (the arrows' box on a header part) */
     if (0)                                      /* (Android) no battery: the header is the page's alone */
 #endif
     {
