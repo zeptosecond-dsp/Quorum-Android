@@ -79,6 +79,7 @@ static int touch_take(int32_t *act, int32_t *x16, int32_t *y16)
 /* (Disk) a patch named on the phone's own keyboard: the engine asks (nm_ask: the slot), the app shows its dialog and
  * answers (nm_done: 1 a name in nm_name, 2 cancelled) */
 static volatile uint32_t nm_ask, nm_shown, nm_done;
+static volatile uint32_t pn_route, pn_st_dn[2], pn_st_up[2];   /* (the keyboard's buttons: the split, strike 1 and 2) */
 static volatile uint32_t vt_kick;                /* a recording to start now, the page not frozen (1..3, as vt_smp) */
 static uint32_t vt_cf_t0, vt_cf_on;              /* (the save's confirmation: the sound faded a moment) */
 static void vt_saved(void);                    /* (android_touch.c) a patch saved: the drive heard, vintage or not */

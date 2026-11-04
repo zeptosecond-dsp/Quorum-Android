@@ -93,16 +93,19 @@ static void header_tap(float x, uint32_t *b)
     if (page == PG_MOD || page == PG_GMAT || (page_subs(page) > 1u && !(page == PG_SEQ && sub >= NSEQ))) *b |= 1u << BTN_OCT_UP;
 }
 
+static float tap_x;                             /* (where the tap was: Global's TUNING steps back from its label) */
 static void value_tap(uint32_t knob, const tgt_t *t)
 {
     kn_t *k;
+    int cycle;
     knobs_for(page, sub, bank);
     k = &KN[knob < (uint32_t)(sizeof KN / sizeof KN[0]) ? knob : 0u];
     if (k->fmt == F_NONE) return;
     if (TB.open && TB.knob == knob) { bar_close(); return; }
-    if (k->hi - k->lo < 6) {                    /* a switch: the next setting, round again */
-        int32_t v = kn_get(k) + 1;
-        kn_put(k, v > k->hi ? k->lo : v);
+    cycle = page == PG_GLOBAL && sub == 0u && knob <= 2u;   /* TUNING, SCALE, ROOT: stepped through, as switches */
+    if (k->hi - k->lo < 6 || cycle) {           /* a switch: the next setting, round again (Global: the label, back) */
+        int32_t v = kn_get(k) + (cycle && tap_x < 64.0f ? -1 : 1);
+        kn_put(k, v > k->hi ? k->lo : v < k->lo ? k->hi : v);
         after_change(page, sub, knob, bank);
         knobs_for(page, sub, bank);
         bar_close();
@@ -639,11 +642,40 @@ static void keys_up(float x)
     TK.mode = 0;
 }
 
+/* ---- the buttons over the keyboard (PanelView.kt): which split the keys play, strike 1 and 2 by hand */
+static void panel_poll(void)
+{
+    static uint32_t dn_seen[2], up_seen[2];
+    uint32_t r = pn_route, s;
+    if (r) {                                    /* 1 A, 2 A+B, 3 B: a path off the keys holds the note it is on */
+        for (s = 0; s < 2u; s++) {
+            uint32_t want = s == 0u ? r <= 2u : r >= 2u;
+            if (P.kbd[s] && !want) P.droot[s] = P.root;
+            P.kbd[s] = (uint8_t)want;
+        }
+        pn_route = 0; dirty_partials = 1;
+    }
+    for (s = 0; s < 2u; s++) {                  /* as the FM-1's top two keys: Bow and Breath held while it is */
+        if (pn_st_dn[s] != dn_seen[s]) {
+            dn_seen[s] = pn_st_dn[s];
+            if (P.k[s].mode >= KM_BOW) { kman_hold_v[s] = 1; kman_until[s] = fm1_ms + 0x7FFFFFFFu; }
+            else kman_req_v[s]++;
+        }
+        if (pn_st_up[s] != up_seen[s]) { up_seen[s] = pn_st_up[s]; if (P.k[s].mode >= KM_BOW) kman_hold_v[s] = 0; }
+    }
+}
+void quorum_route(int32_t mode) { if (mode >= 1 && mode <= 3) pn_route = (uint32_t)mode; }
+int32_t quorum_route_get(void) { return P.kbd[0] && P.kbd[1] ? 2 : P.kbd[1] ? 3 : P.kbd[0] ? 1 : 0; }   /* (0: neither) */
+void quorum_strike(int32_t s, int32_t down) { if (down) pn_st_dn[s & 1]++; else pn_st_up[s & 1]++; }
+/* the strikes' gates, for the buttons' glow */
+int32_t quorum_strike_lit(void) { return (int32_t)((kgate_v[0] ? 1u : 0u) | (kgate_v[1] ? 2u : 0u)); }
+
 static void touch_frame(uint32_t *b)
 {
     int32_t act, x16, y16;
     vt_poll();
     nm_poll();
+    panel_poll();
     if (vt_busy) {                              /* (the machine is busy: touches go nowhere) */
         while (touch_take(&act, &x16, &y16)) { pen_x = x16 >> 4; pen_y = y16 >> 4; pen_t = fm1_ms; pen_down = act != TE_UP; }
         TS.scroll = TS.pending = 0; TB.drag = 0; TM.mode = 0; TK.mode = 0; TG.on = 0; kc_place = 0;
@@ -691,6 +723,7 @@ static void touch_frame(uint32_t *b)
                 if (hit->a == 1u) { aset.vint ^= 1u; aset_dirty = 1; t_aset = fm1_ms; }   /* (VINTAGE MODE) */
             } else if (hit->kind == T_KNOB) {
                 tgt_t t = *hit;
+                tap_x = x;
                 value_tap(hit->a, &t);
             }
         } else if (act == TE_MOVE) {

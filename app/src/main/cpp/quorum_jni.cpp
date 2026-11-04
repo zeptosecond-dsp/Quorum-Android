@@ -22,6 +22,10 @@ void quorum_copy_screen(uint32_t *argb);
 void quorum_crt(uint8_t *intensity, uint8_t *rgba, int32_t *gain);
 void quorum_touch(int32_t act, float x, float y);
 int32_t quorum_name_ask(char *out);
+void quorum_route(int32_t mode);
+int32_t quorum_route_get(void);
+void quorum_strike(int32_t s, int32_t down);
+int32_t quorum_strike_lit(void);
 void quorum_name_set(const char *s, int32_t ok);
 }
 
@@ -150,3 +154,8 @@ JNI void JNICALL FN(nameSet)(JNIEnv *env, jclass, jstring name, jboolean ok) {
     }
     quorum_name_set(n, ok ? 1 : 0);
 }
+// the buttons over the keyboard: the split the keys play (1 A, 2 A+B, 3 B), strike 1 and 2 by hand
+JNI void JNICALL FN(route)(JNIEnv *, jclass, jint mode) { quorum_route(mode); }
+JNI jint JNICALL FN(routeGet)(JNIEnv *, jclass) { return quorum_route_get(); }
+JNI void JNICALL FN(strike)(JNIEnv *, jclass, jint s, jboolean down) { quorum_strike(s, down ? 1 : 0); }
+JNI jint JNICALL FN(strikeLit)(JNIEnv *, jclass) { return quorum_strike_lit(); }

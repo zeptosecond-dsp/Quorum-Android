@@ -39,6 +39,14 @@ object Native {
     /** The name typed ([ok]), or the dialog closed without one. */
     @JvmStatic external fun nameSet(name: String?, ok: Boolean)
 
+    /** The keyboard's split: [mode] 1 A, 2 A+B, 3 B; [routeGet] as it is now (0: neither path on the keys). */
+    @JvmStatic external fun route(mode: Int)
+    @JvmStatic external fun routeGet(): Int
+    /** Strike [s] (0, 1) by hand: down and up (Bow and Breath sound while it is held). */
+    @JvmStatic external fun strike(s: Int, down: Boolean)
+    /** The strikes' gates now: bit 0 strike 1, bit 1 strike 2. */
+    @JvmStatic external fun strikeLit(): Int
+
     // the FM-1's ids (firmware/src/platform.c)
     const val BTN_OCT_DOWN = 0
     const val BTN_OCT_UP = 1
