@@ -41,12 +41,15 @@ static void tgt_add2(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t kind, 
 
 /* the phone's own settings (Global: VDU), kept in their own file beside the firmware's */
 typedef struct { uint8_t ver, lines, dark, pen; } aset1_t;   /* (the file as builds before the vintage page wrote it) */
-typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, pad; } aset_t;
-static aset_t aset = {3, 2, 6, 1, 0, 1, 0, 0, 0, 3, 0, 0};   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
+typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, pad; } aset3_t;   /* (before
+                                                   CAPACITOR and FLYBACK) */
+typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, cap, fly, pad[3]; } aset_t;
+static aset_t aset = {4, 2, 6, 1, 0, 1, 0, 0, 0, 3, 0, 0, 0, {0, 0, 0}};   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
                                                    lightpen's cursor; (Global: VINTAGE) vint: vintage mode, off until
                                                    asked; odds: a disk access on a page change, rare / 1 in 10 /
                                                    cranky; drive: 5.25" floppy (recorded) / hard disk; burn, persist: 0..10; draw: the
-                                                   page drawn in over draw x 80 ms; warm: a warm-up at launch */
+                                                   page drawn in over draw x 80 ms; warm: a warm-up at launch; cap, fly: 0..10, the
+                                                   tired capacitors' wavy edges, the failing flyback's fold (CrtView) */
 static const uint8_t VT_ODDS[3] = {25, 10, 4};   /* a disk access: one page change in so many */
 
 /* (Global: VINTAGE) the disk: an access running (the page frozen, the sound faded, the drive heard); the drive's sounds
@@ -81,6 +84,8 @@ static int touch_take(int32_t *act, int32_t *x16, int32_t *y16)
  * answers (nm_done: 1 a name in nm_name, 2 cancelled) */
 static volatile uint32_t nm_ask, nm_shown, nm_done;
 static volatile uint32_t pn_route, pn_st_dn[2], pn_st_up[2];
+static volatile int32_t pn_fg = -1;            /* (the lights: an FG chosen on its page or the mod matrix, its level 0..32767; -1 none) */
+static volatile uint32_t pn_boot;               /* (the boot screen up: the lights sweep) */
 static _Atomic uint32_t pn_flip[2];             /* (the lights over the keyboard: cells of each grid's row to turn over) */   /* (the keyboard's buttons: the split, strike 1 and 2) */
 static volatile uint32_t vt_kick;                /* a recording to start now, the page not frozen (1..3, as vt_smp) */
 static uint32_t vt_cf_t0, vt_cf_on;              /* (the save's confirmation: the sound faded a moment) */

@@ -28,6 +28,8 @@ void quorum_cell(int32_t g, int32_t c);
 int32_t quorum_route_get(void);
 void quorum_strike(int32_t s, int32_t down);
 int32_t quorum_strike_lit(void);
+int32_t quorum_fg_level(void);
+int32_t quorum_booting(void);
 void quorum_name_set(const char *s, int32_t ok);
 }
 
@@ -128,15 +130,15 @@ JNI void JNICALL FN(screen)(JNIEnv *env, jclass, jintArray out) {
     quorum_copy_screen(reinterpret_cast<uint32_t *>(p));
     env->ReleaseIntArrayElements(out, p, 0);
 }
-// the tube's inputs for CrtView: intensities (240 x 240 bytes), the phosphor ramp (256 RGBA), the gain and scanlines (4 ints)
+// the tube's inputs for CrtView: intensities (240 x 240 bytes), the phosphor ramp (256 RGBA), the gain, scanlines, degauss, capacitor and flyback (7 ints)
 JNI void JNICALL FN(crt)(JNIEnv *env, jclass, jobject intensity, jobject ramp, jintArray gain) {
     auto *in = static_cast<uint8_t *>(env->GetDirectBufferAddress(intensity));
     auto *rg = static_cast<uint8_t *>(env->GetDirectBufferAddress(ramp));
     if (!in || !rg || env->GetDirectBufferCapacity(intensity) < 240 * 240 || env->GetDirectBufferCapacity(ramp) < 1024) return;
-    if (env->GetArrayLength(gain) < 5) return;
-    jint g[5];
+    if (env->GetArrayLength(gain) < 7) return;
+    jint g[7];
     quorum_crt(in, rg, reinterpret_cast<int32_t *>(g));
-    env->SetIntArrayRegion(gain, 0, 5, g);
+    env->SetIntArrayRegion(gain, 0, 7, g);
 }
 // a finger on the screen: act 0 down, 1 move, 2 up; x, y on the glass in the firmware's pixels (0 .. 240)
 JNI void JNICALL FN(touch)(JNIEnv *, jclass, jint act, jfloat x, jfloat y) { quorum_touch(act, x, y); }
@@ -161,5 +163,7 @@ JNI void JNICALL FN(route)(JNIEnv *, jclass, jint mode) { quorum_route(mode); }
 JNI jint JNICALL FN(routeGet)(JNIEnv *, jclass) { return quorum_route_get(); }
 JNI void JNICALL FN(strike)(JNIEnv *, jclass, jint s, jboolean down) { quorum_strike(s, down ? 1 : 0); }
 JNI jint JNICALL FN(strikeLit)(JNIEnv *, jclass) { return quorum_strike_lit(); }
+JNI jint JNICALL FN(fgLevel)(JNIEnv *, jclass) { return quorum_fg_level(); }
+JNI jint JNICALL FN(booting)(JNIEnv *, jclass) { return quorum_booting(); }
 JNI jint JNICALL FN(row)(JNIEnv *, jclass, jint g) { return (jint)quorum_row(g); }
 JNI void JNICALL FN(cell)(JNIEnv *, jclass, jint g, jint c) { quorum_cell(g, c); }

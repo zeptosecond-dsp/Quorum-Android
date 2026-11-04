@@ -15,7 +15,9 @@ import android.view.View
  * the keys play (A, A+B, B) in the middle, STRIKE 2 at the far right, all plates like the keys.
  * The 27 keys are the FM-1's (F3 .. G5), plain plates: the grids show in the lights above.
  * Above it all, on black under a thin navy rule: each grid's row now as square red lights, A on the left, B on the
- * right; touched (or swept) they turn over, as the cells on the Grids page.
+ * right; touched (or swept) they turn over, as the cells on the Grids page. While an FG is chosen (its page, or its
+ * row on the mod matrix) all 64 show its level instead, as the FM-1 S6's keys: a dot, the way up glowing. At boot,
+ * while the petri dish grows, two quick sweeps, A and B going opposite ways.
  */
 class PanelView(context: Context) : View(context) {
     private val d = resources.displayMetrics.density
@@ -101,21 +103,7 @@ class PanelView(context: Context) : View(context) {
         fill.color = navy
         canvas.drawRect(rule, fill)
         canvas.drawRect(0f, band.top, width.toFloat(), height.toFloat(), fill)
-        for (g in 0..1) {                       // the grids' rows: lit or not
-            val row = Native.row(g)
-            val s = ledPitch * 0.66f
-            for (c in 0 until 32) {
-                val x = ledX[g] + c * ledPitch + (ledPitch - s) / 2f
-                val y = strip.centerY() - s / 2f
-                val on = (row ushr c) and 1 != 0
-                if (on) {
-                    fill.color = 0x55FF2A2A
-                    canvas.drawRect(x - 1.5f * d, y - 1.5f * d, x + s + 1.5f * d, y + s + 1.5f * d, fill)
-                }
-                fill.color = if (on) 0xFFFF3B30.toInt() else 0xFF3A0C10.toInt()
-                canvas.drawRect(x, y, x + s, y + s, fill)
-            }
-        }
+        drawLights(canvas)
         val route = Native.routeGet()
         val lit = Native.strikeLit()
 
@@ -151,6 +139,58 @@ class PanelView(context: Context) : View(context) {
         postInvalidateOnAnimation()
     }
 
+    // the lights: 0 dark .. 1 lit, by place (0..63, A's 32 then B's)
+    private val lv = FloatArray(64)
+    private var sweepT0 = -1L                   // the boot sweep's start (-1: not yet; -2: done or missed)
+    private var lightsTouch = true              // the cells can be turned over (not while an FG or the sweep shows)
+
+    private fun lerp(a: Int, b: Int, t: Float): Int {
+        fun ch(sh: Int) = (((a shr sh) and 255) + (((b shr sh) and 255) - ((a shr sh) and 255)) * t).toInt() shl sh
+        return (0xFF shl 24) or ch(16) or ch(8) or ch(0)
+    }
+
+    private fun drawLights(canvas: Canvas) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (sweepT0 == -1L) sweepT0 = if (Native.booting() != 0) now else -2L
+        val fg = Native.fgLevel()
+        val sweepMs = 2400L                     // two there-and-backs: A left to right, B mirrored
+        if (sweepT0 >= 0 && now - sweepT0 < sweepMs) {
+            val ph = ((now - sweepT0) % 1200L) / 1200f * 2f            // 0..2: out and back
+            val head = (if (ph < 1f) ph else 2f - ph) * 31f
+            val dir = if (ph < 1f) 1f else -1f
+            for (c in 0 until 32) {
+                val behind = (head - c) * dir                          // how far the tail trails
+                val v = if (behind < -0.5f) 0f else if (behind < 0.5f) 1f else maxOf(0f, 1f - behind / 4.5f) * 0.7f
+                lv[c] = v; lv[63 - c] = v
+            }
+            lightsTouch = false
+        } else if (fg >= 0) {                   // an FG: a dot at its level, the way up glowing (one block of 64)
+            val pos = fg * 63 / 32767
+            for (i in 0 until 64) lv[i] = if (i == pos) 1f else if (i < pos) 0.38f else 0f
+            lightsTouch = false
+        } else {
+            for (g in 0..1) {
+                val row = Native.row(g)
+                for (c in 0 until 32) lv[g * 32 + c] = if ((row ushr c) and 1 != 0) 1f else 0f
+            }
+            lightsTouch = true
+        }
+        val s = ledPitch * 0.66f
+        for (i in 0 until 64) {
+            val g = i / 32
+            val c = i % 32
+            val x = ledX[g] + c * ledPitch + (ledPitch - s) / 2f
+            val y = strip.centerY() - s / 2f
+            val v = lv[i]
+            if (v > 0.6f) {
+                fill.color = (((0x55 * v).toInt()) shl 24) or 0xFF2A2A
+                canvas.drawRect(x - 1.5f * d, y - 1.5f * d, x + s + 1.5f * d, y + s + 1.5f * d, fill)
+            }
+            fill.color = lerp(0xFF3A0C10.toInt(), 0xFFFF3B30.toInt(), v)
+            canvas.drawRect(x, y, x + s, y + s, fill)
+        }
+    }
+
     private fun keyAt(x: Float, y: Float): Key? =
         keys.firstOrNull { it.black && it.r.contains(x, y) } ?: keys.firstOrNull { !it.black && it.r.contains(x, y) }
 
@@ -168,6 +208,7 @@ class PanelView(context: Context) : View(context) {
     }
 
     private fun sweep(id: Int, x: Float, y: Float) {
+        if (!lightsTouch) return
         val l = ledAt(x, y) ?: return
         if (swept[id] == l) return
         swept[id] = l

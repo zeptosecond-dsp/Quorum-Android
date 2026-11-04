@@ -1818,7 +1818,8 @@ enum { F_INT, F_SLEW, F_TILT, F_STR, F_PCT, F_GMODE, F_GRATE, F_MUT, F_ONOFF, F_
        Android) */
 typedef struct { const char *name; uint8_t *p; int16_t lo, hi; uint8_t fmt, step; } kn_t;
 #ifdef QUORUM_ANDROID
-static kn_t KN[6];                              /* (Android: 4, 5 values a page's command words set, e.g. VOICE's ROOT) */
+static kn_t KN[8];                              /* (Android: 4, 5 values a page's command words set, e.g. VOICE's ROOT;
+                                                   VINTAGE's rows use all 8) */
 #else
 static kn_t KN[4];
 #endif
@@ -1831,7 +1832,7 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
 {
     uint32_t i;
 #ifdef QUORUM_ANDROID
-    for (i = 0; i < 6u; i++) kn_set(i, "", &dummy, 0, 0, F_NONE, 1);
+    for (i = 0; i < 8u; i++) kn_set(i, "", &dummy, 0, 0, F_NONE, 1);
     if (pg == PG_VOICE) kn_set(4, "ROOT", &P.root, 21, 72, F_NOTE, 1);   /* (the FM-1's ALGORITHM) */
     if (pg == PG_SPLIT && sb == 0u) kn_set(4, "N", &P.sn, 2, 8, F_INT, 1);
 #else
@@ -1943,6 +1944,7 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
             kn_set(0, "ODDS", &aset.odds, 0, 2, F_ODDS, 1); kn_set(1, "DRIVE", &aset.drive, 0, 1, F_DRIVE, 1);
             kn_set(2, "BURN", &aset.burn, 0, 10, F_TEN, 1); kn_set(3, "PERSIST", &aset.persist, 0, 10, F_TEN, 1);
             kn_set(4, "DRAW", &aset.draw, 0, 10, F_DRAW, 1); kn_set(5, "WARM-UP", &aset.warm, 0, 1, F_ONOFF, 1);
+            kn_set(6, "CAPACITOR", &aset.cap, 0, 10, F_TEN, 1); kn_set(7, "FLYBACK", &aset.fly, 0, 10, F_TEN, 1);
         }
 #endif
         else { kn_set(0, "ENG VER", &P.engver, 1, 2, F_BITS, 1); kn_set(1, "CLOCK", &P.clk_midi, 0, 1, F_CLK, 1);
@@ -2671,7 +2673,9 @@ static void draw_keys(void)
         if (a0 < a1) {
             int32_t x = x0 + (int32_t)(a0 - p0) * sw, w = (int32_t)(a1 - a0) * sw - 1;
             if (kc_place) { if (blink) cv_rect(x, y, w, rh, PH_HI); else { cv_rect(x, y, w, 1, PH_HI); cv_rect(x, y + rh - 1, w, 1, PH_HI); } }
+#ifndef QUORUM_ANDROID                          /* (Android: nothing at rest: the finger places the notes) */
             else if (a0 == kc_pos) { cv_rect(x, y, 1, rh, PH_HI); cv_rect(x, y + rh - 1, w, 1, PH_HI); }
+#endif
         }
     }
     {   /* page R's triangles: four along the lane, the first at its left corner, the last at its right, the middle two
@@ -3077,26 +3081,23 @@ static void draw_vdu(void)                      /* GLOBAL: VDU, as Arcturus S6: 
 #ifdef QUORUM_ANDROID
 static void draw_vintage(void)                  /* (Android) GLOBAL: VINTAGE: the machine's moods, all the phone's own */
 {
-    static const char *const NAME[7] = {"VINTAGE MODE", "DISK ODDS", "DRIVE", "SCREEN BURN", "PERSISTENCE", "DRAW SPEED", "WARM-UP"};
+    static const char *const NAME[9] = {"VINTAGE MODE", "DISK ODDS", "DRIVE", "SCREEN BURN", "PERSISTENCE", "DRAW SPEED",
+                                        "WARM-UP", "CAPACITOR", "FLYBACK"};
     char s[24];
     uint32_t i;
     cv_begin(240, BODY_H, PH_BG);
     knobs_for(PG_GLOBAL, 3u, 0u);
-    for (i = 0; i < 7u; i++) {
+    for (i = 0; i < 9u; i++) {
         int32_t y = 2 + (int32_t)i * 18;
         uint16_t c = i >= 1u && i <= 2u && !aset.vint ? PH_LO : PH_HI;   /* (the disk's: only with the mode on) */
         cv_text(4, y, &FONT_S, NAME[i], PH_LO);
         if (i == 0u) { cv_text(124, y, &FONT_S, aset.vint ? "ON" : "OFF", PH_HI); tgt_add(0, BODY_Y + y - 1, 240, 18, T_OPT, 1); }
         else { kn_text(s, &KN[i - 1u], 0); cv_text(124, y, &FONT_S, s, c); tgt_add(0, BODY_Y + y - 1, 240, 18, T_KNOB, i - 1u); }
-        if (i >= 3u && i <= 5u) {               /* (the levels as a row of dots) */
-            uint32_t v = i == 3u ? aset.burn : i == 4u ? aset.persist : aset.draw, j;
+        if ((i >= 3u && i <= 5u) || i >= 7u) {   /* (the levels as a row of dots) */
+            uint32_t v = i == 3u ? aset.burn : i == 4u ? aset.persist : i == 5u ? aset.draw : i == 7u ? aset.cap : aset.fly, j;
             for (j = 1; j <= 10u; j++) cv_rect(176 + (int32_t)j * 5, y + 5, 3, 6, j <= v ? PH_MID : PH_SEL);
         }
     }
-    cv_rect(0, 131, 240, 1, PH_LO);
-    cv_text(4, 136, &FONT_S, "VINTAGE MODE: NOW AND THEN", PH_LO);
-    cv_text(4, 152, &FONT_S, "A PAGE WAITS ON THE DISK.", PH_LO);
-    cv_text(4, 168, &FONT_S, "NEVER WITH MIDI OR KEYS ON.", PH_LO);
     cv_text(4, 186, &FONT_S, "FLOPPY: ULLVIEIB, CC BY 4.0", PH_LO);   /* (the recordings' credit) */
     CMDS(C_DEGAUSS);
     cv_out(BODY_Y);
@@ -3890,8 +3891,14 @@ static void app_main(void)
     for (i = 0; i < 2u; i++) { grid_seed(i); for (b = 0; b < GHIST; b++) grid_step(i); G[i].rescue_t = 0; }
     kimp_v[0] = P.k[0].mode < KM_BOW; kimp_v[1] = P.k[1].mode < KM_BOW;
     E = P;
+#ifdef QUORUM_ANDROID
+    pn_boot = 1;                                /* (the lights over the keyboard sweep while the dish grows) */
+#endif
     skip = boot_wait(250);
     for (i = 1; i <= 6u && !skip; i++) { draw_boot(i); skip = boot_wait(i == 6u ? 900u : 250u); }
+#ifdef QUORUM_ANDROID
+    pn_boot = 0;
+#endif
     mod_apply();
     push_partials();
     t_half = fm1_ms;

@@ -88,6 +88,7 @@ void quorum_crt(uint8_t *intensity, uint8_t *rgba, int32_t *gain)
         uint32_t dg = fm1_ms - dg_start_ms;
         gain[0] = (int32_t)gc; gain[1] = (int32_t)ge; gain[2] = ASET_LINES[aset.lines % 5u]; gain[3] = (int32_t)aset.dark * 7;
         gain[4] = dg_start_ms != 0xFFFFFFFFu && dg < 2000u ? (int32_t)dg : -1;   /* the degauss: ms since, or -1 */
+        gain[5] = aset.cap; gain[6] = aset.fly;   /* (VINTAGE: the tube's faults, 0..10: CrtView draws them) */
     }
     if (!rgba) return;
     for (i = 0; i < 256u; i++) {

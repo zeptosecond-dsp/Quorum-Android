@@ -458,26 +458,23 @@ static void cmd_label(uint32_t id, char *s)     /* (as the footer shows it now: 
     }
 }
 /* ---- (Disk) naming on the phone's keyboard */
-static uint32_t nm_after, t_nm_after;           /* a file saved new: its name asked for next */
-static void nm_start(uint32_t slot)
+static uint32_t nm_new;                         /* an empty slot: the name first, then it saves */
+static void nm_start(uint32_t slot, uint32_t fresh)
 {
     uint32_t i;
     if (slot == 0u || slot == P_RANDOM) { pmsg = "SYSTEM FILE"; t_msg = fm1_ms; return; }
-    if (slot > NPATCH || !pused[slot]) { pmsg = "EMPTY SLOT: SAVE FIRST"; t_msg = fm1_ms; return; }
-    for (i = 0; i < 8u; i++) nm_name[i] = pname[slot][i];
+    if (slot > NPATCH || (!fresh && !pused[slot])) { pmsg = "EMPTY SLOT: SAVE FIRST"; t_msg = fm1_ms; return; }
+    nm_new = fresh;
+    if (!fresh) for (i = 0; i < 8u; i++) nm_name[i] = pname[slot][i];
+    else if (!name_blank(cur_name)) for (i = 0; i < 8u; i++) nm_name[i] = cur_name[i];   /* (the sound's own name, to change) */
+    else name_default(nm_name, slot);
     nm_name[8] = 0;
     nm_done = 0; nm_shown = 0; pconf = PC_NONE; pmsg = "";
     atomic_thread_fence(memory_order_release);
     nm_ask = slot;
 }
-static void nm_poll(void)                       /* each pass: a name come back from the app; a new file to name */
+static void nm_poll(void)                       /* each pass: a name come back from the app */
 {
-    if (nm_after) {
-        if (!t_nm_after || vt_busy) t_nm_after = fm1_ms;   /* (the drive first, if it runs: then the name) */
-        if (vt_busy) return;
-        if (pused[nm_after] && ploaded == nm_after) { nm_start(nm_after); nm_after = 0; t_nm_after = 0; }
-        else if (fm1_ms - t_nm_after > 1500u) { nm_after = 0; t_nm_after = 0; }   /* (it didn't save) */
-    }
     if (nm_ask && nm_done) {
         atomic_thread_fence(memory_order_acquire);
         if (nm_done == 1u) {
@@ -485,10 +482,16 @@ static void nm_poll(void)                       /* each pass: a name come back f
             uint32_t i;
             for (i = 0; i < 8u; i++) n[i] = nm_name[i] ? nm_name[i] : ' ';
             if (name_blank(n)) name_default(n, nm_ask);
-            pmsg = patch_rename(nm_ask, n) == 0 ? "NAMED" : "NAMING FAILED";
+            int r;
+            if (nm_new) {                       /* the new file: named, now saved */
+                for (i = 0; i < 8u; i++) cur_name[i] = n[i];
+                r = patch_save(nm_ask);
+                pmsg = r == 0 ? "SAVED" : "SAVE FAILED";
+            } else { r = patch_rename(nm_ask, n); pmsg = r == 0 ? "NAMED" : "NAMING FAILED"; }
+            if (r == 0) vt_saved();             /* (the save's sound, the music aside a moment: both alike) */
             t_msg = fm1_ms;
-            vt_disk(1u, 1u);                    /* (vintage: the drive writes it) */
-        }
+        } else if (nm_new) { pmsg = "NOT SAVED"; t_msg = fm1_ms; }
+        pconf = PC_NONE;
         nm_ask = 0; nm_done = 0;
     }
 }
@@ -525,7 +528,7 @@ static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the
     case C_SEED: case C_FIRE: case C_KEYS: case C_GATE: case C_NOFB: case C_DCLEAR: case C_FREEZE: case C_QUANT:
     case C_RESETMAX: case C_NCANCEL:
         *b |= 1u << BTN_PLAY; break;
-    case C_NAME: nm_start(pcur); break;
+    case C_NAME: nm_start(pcur, 0u); break;
     case C_TUNDN: case C_TUNUP: case C_SCLDN: case C_SCLUP: case C_ROOTDN: case C_ROOTUP: {   /* (Global: the arrows) */
         uint32_t kn = t->a <= C_TUNUP ? 0u : t->a <= C_SCLUP ? 1u : 2u;
         int32_t v;
@@ -542,7 +545,7 @@ static void cmd_tap(const tgt_t *t, uint32_t *b)   /* a command word tapped: the
     case C_INIT: if (pcur != 0u) { pcur = 0; pconf = PC_NONE; } *b |= 1u << BTN_SEL; pmsg = ""; break;   /* (twice: INIT, LOAD?) */
     case C_RAND: pcur = P_RANDOM; pconf = PC_LOAD; *b |= 1u << BTN_SEL; break;   /* (a new roll each tap) */            /* (what PLAY did on this page) */
     case C_F0: case C_LOAD: case C_BANK: *b |= 1u << BTN_SEL; break;   /* (SEL: a page's banks, VOICE's F0, the Disk's load) */
-    case C_SAVE: if (pcur >= 1u && pcur <= NPATCH && !pused[pcur]) nm_after = pcur;   /* (a new file: then its name) */
+    case C_SAVE: if (pcur >= 1u && pcur <= NPATCH && !pused[pcur]) { nm_start(pcur, 1u); break; }   /* (a new file: its name first) */
         /* fall through */
     case C_NOK: *b |= 1u << BTN_SAVE; break;
     case C_REC: *b |= 1u << BTN_REC; break;
@@ -677,6 +680,12 @@ static void panel_poll(void)
         }
         if (pn_st_up[s] != up_seen[s]) { up_seen[s] = pn_st_up[s]; if (P.k[s].mode >= KM_BOW) kman_hold_v[s] = 0; }
     }
+    {                                           /* an FG chosen (its own page, or its row on the mod matrix): its level on the lights */
+        int32_t f = -1;
+        if (page == PG_FG && sub < NFG) f = src_v[S_FG(sub)];
+        else if (page == PG_MOD && mrow < NFG) f = src_v[S_FG(mrow)];
+        pn_fg = f < 0 ? -1 : f > 32767 ? 32767 : f;
+    }
     for (s = 0; s < 2u; s++) {                  /* cells touched on the lights: as on the Grids page */
         uint32_t f = atomic_exchange(&pn_flip[s], 0u);
         if (f) {
@@ -693,6 +702,9 @@ void quorum_cell(int32_t g, int32_t c) { if (c >= 0 && c < (int32_t)NC) atomic_f
 void quorum_route(int32_t mode) { if (mode >= 1 && mode <= 3) pn_route = (uint32_t)mode; }
 int32_t quorum_route_get(void) { return P.kbd[0] && P.kbd[1] ? 2 : P.kbd[1] ? 3 : P.kbd[0] ? 1 : 0; }   /* (0: neither) */
 void quorum_strike(int32_t s, int32_t down) { if (down) pn_st_dn[s & 1]++; else pn_st_up[s & 1]++; }
+/* the lights: an FG's level to show (0..32767), or -1 (the grids' rows); the boot screen up */
+int32_t quorum_fg_level(void) { return pn_fg; }
+int32_t quorum_booting(void) { return (int32_t)pn_boot; }
 /* the strikes' gates, for the buttons' glow */
 int32_t quorum_strike_lit(void) { return (int32_t)((kgate_v[0] ? 1u : 0u) | (kgate_v[1] ? 2u : 0u)); }
 

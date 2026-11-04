@@ -167,13 +167,19 @@ static void app_main(void);
 static void aset_load(void)
 {
     aset_t a;
+    aset3_t a3;
     aset1_t o;
-    if (q_load("android", -1, &a, sizeof a) == 0 && a.ver == 3u) aset = a;
+    if (q_load("android", -1, &a, sizeof a) == 0 && a.ver == 4u) aset = a;
+    else if (q_load("android", -1, &a3, sizeof a3) == 0 && a3.ver == 3u) {   /* (a file from before the tube's faults) */
+        aset.lines = a3.lines; aset.dark = a3.dark; aset.pen = a3.pen; aset.vint = a3.vint; aset.odds = a3.odds;
+        aset.drive = a3.drive; aset.burn = a3.burn; aset.persist = a3.persist; aset.draw = a3.draw; aset.warm = a3.warm;
+    }
     else if (q_load("android", -1, &o, sizeof o) == 0 && (o.ver == 1u || o.ver == 2u)) {   /* (an older file: its VDU
                                                    settings kept, the vintage ones as new) */
         aset.lines = o.lines; aset.dark = o.dark; aset.pen = o.ver == 1u ? 1u : o.pen;
     }
-    aset.ver = 3;
+    aset.ver = 4;
+    if (aset.cap > 10u) aset.cap = 0; if (aset.fly > 10u) aset.fly = 0;
     if (aset.pen > 1u) aset.pen = 1;
     if (aset.lines > 4u) aset.lines = 2;
     if (aset.dark > 10u) aset.dark = 6;

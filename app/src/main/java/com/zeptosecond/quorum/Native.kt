@@ -49,6 +49,10 @@ object Native {
     @JvmStatic external fun cell(g: Int, c: Int)
     /** The strikes' gates now: bit 0 strike 1, bit 1 strike 2. */
     @JvmStatic external fun strikeLit(): Int
+    /** The lights: an FG's level (0..32767) while one is chosen on its page or the mod matrix, else -1. */
+    @JvmStatic external fun fgLevel(): Int
+    /** 1 while the boot screen (the petri dish) is up. */
+    @JvmStatic external fun booting(): Int
 
     // the FM-1's ids (firmware/src/platform.c)
     const val BTN_OCT_DOWN = 0

@@ -52,7 +52,7 @@ class CrtView(context: Context) : GLSurfaceView(context) {
     private inner class Renderer : GLSurfaceView.Renderer {
         private val intensity = ByteBuffer.allocateDirect(240 * 240).order(ByteOrder.nativeOrder())
         private val ramp = ByteBuffer.allocateDirect(256 * 4).order(ByteOrder.nativeOrder())
-        private val gain = IntArray(5)
+        private val gain = IntArray(7)
         private val quad: FloatBuffer = ByteBuffer.allocateDirect(4 * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
             // clip x, y; engine x, y (y down)
             put(floatArrayOf(-1f, -1f, 0f, 240f, 1f, -1f, 240f, 240f, -1f, 1f, 0f, 0f, 1f, 1f, 240f, 0f)); position(0)
@@ -65,6 +65,10 @@ class CrtView(context: Context) : GLSurfaceView(context) {
         private var uLinePx = 0
         private var uLineDim = 0
         private var uDg = 0
+        private var uCap = 0
+        private var uFly = 0
+        private var uT = 0
+        private val t0 = android.os.SystemClock.uptimeMillis()
         private var viewH = 1
 
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -87,6 +91,9 @@ class CrtView(context: Context) : GLSurfaceView(context) {
             uLinePx = GLES20.glGetUniformLocation(prog, "uLinePx")
             uLineDim = GLES20.glGetUniformLocation(prog, "uLineDim")
             uDg = GLES20.glGetUniformLocation(prog, "uDg")
+            uCap = GLES20.glGetUniformLocation(prog, "uCap")
+            uFly = GLES20.glGetUniformLocation(prog, "uFly")
+            uT = GLES20.glGetUniformLocation(prog, "uT")
             val aPos = GLES20.glGetAttribLocation(prog, "aPos")
             val aEng = GLES20.glGetAttribLocation(prog, "aEng")
             quad.position(0)
@@ -118,6 +125,9 @@ class CrtView(context: Context) : GLSurfaceView(context) {
             GLES20.glUniform1f(uLinePx, lp.toFloat())
             GLES20.glUniform1f(uLineDim, 1f - gain[3].coerceIn(0, 100) / 100f)
             GLES20.glUniform1f(uDg, if (gain[4] >= 0) gain[4] / 1000f else -1f)   // the degauss: seconds since, or -1
+            GLES20.glUniform1f(uCap, gain[5].coerceIn(0, 10) / 10f)   // (VINTAGE) the capacitors, the flyback: 0..1
+            GLES20.glUniform1f(uFly, gain[6].coerceIn(0, 10) / 10f)
+            GLES20.glUniform1f(uT, ((android.os.SystemClock.uptimeMillis() - t0) % 600000L) / 1000f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         }
@@ -165,6 +175,12 @@ void main() {
         // The firmware's tube (dinghy.c, cv_out step 3), in continuous coordinates. q is the engine pixel this
         // fragment falls in (0..240, the firmware's x, y); the bulge reads a little further out the further from
         // the middle; the corners dim by the VDU brightness's gain (crt_build's gc, ge); the ramp gives the colour.
+        // (Global: VINTAGE) the tube's faults, each 0..1:
+        //   capacitor  dried-out filter caps: mains ripple in the deflection, the sides of the picture wavering in a
+        //              slow roll up the screen, the top corners pulled in and stained purple, a faint hum bar
+        //   flyback    a failing flyback: the top of the scan folding back over itself in a bright band, the picture
+        //              squashed toward the top and sat low and drifting, lines pairing into a fine hatch, bright
+        //              edges smearing to the right
         private const val FS = """
 precision highp float;
 uniform sampler2D uInt;
@@ -174,25 +190,70 @@ uniform float uGe;
 uniform float uLinePx;
 uniform float uLineDim;
 uniform float uDg;
+uniform float uCap;
+uniform float uFly;
+uniform float uT;
 varying vec2 vEng;
+float tube(vec2 q, vec2 g) {                // the picture at q (where the beam is told to be), dimmed as the glass at g
+    vec2 d = q - 120.0;
+    float k2 = 30.0 * dot(d, d);
+    vec2 s = q + d * k2 / 16777216.0;
+    if (s.x < 0.0 || s.y < 0.0 || s.x >= 239.0 || s.y >= 239.0) return 0.0;
+    float v = texture2D(uInt, (s + 0.5) / 240.0).r * 255.0;
+    vec2 e = 2.0 * g + 1.0 - 240.0;
+    float d2 = (e.x * e.x + e.y * e.y) * 128.0 / 57121.0;
+    float tf = uGe + (uGc - uGe) * clamp(256.0 - d2, 0.0, 256.0) / 256.0;
+    return v * tf / 256.0;
+}
 void main() {
     vec2 q = vEng - 0.5;
+    vec2 g = q;                             // (the glass: where this fragment is)
     if (uDg >= 0.0) {                       // the degauss: the picture wobbles, the wobble dying away
         float a = 7.0 * exp(-2.5 * uDg);
         q += vec2(sin(q.y * 0.09 + uDg * 38.0), cos(q.x * 0.07 + uDg * 29.0)) * a;
     }
-    vec2 d = q - 120.0;
-    float k2 = 30.0 * dot(d, d);
-    vec2 s = q + d * k2 / 16777216.0;
-    float v = 0.0;
-    if (s.x >= 0.0 && s.y >= 0.0 && s.x < 239.0 && s.y < 239.0) {
-        v = texture2D(uInt, (s + 0.5) / 240.0).r * 255.0;
-        vec2 e = 2.0 * q + 1.0 - 240.0;
-        float d2 = (e.x * e.x + e.y * e.y) * 128.0 / 57121.0;
-        float tf = uGe + (uGc - uGe) * clamp(256.0 - d2, 0.0, 256.0) / 256.0;
-        v = min(255.0, v * tf / 256.0);
+    float hum = 1.0;
+    if (uCap > 0.0) {                       // the capacitors: the width breathing with the ripple, line by line
+        float a = pow(uCap, 1.5);
+        float ph = q.y / 240.0 * 6.2831853 * 1.3 + uT * 1.7;   // (a cycle and a bit down the screen, rolling)
+        float edge = (q.x - 120.0) / 120.0;
+        float wob = sin(ph) + 0.35 * sin(ph * 2.7 + 1.3) + 0.15 * sin(q.y * 0.21 - uT * 9.0);
+        q.x -= edge * abs(edge) * wob * a * 16.0;
+        q.x += edge * a * 22.0 * exp(-q.y / 22.0);             // (the top corners drawn in)
+        q.x += sin(q.y * 0.045 + uT * 1.1) * a * 2.5;           // (the whole picture swaying a little)
+        hum = 1.0 - a * 0.16 * (0.5 + 0.5 * sin(ph - 0.8));
     }
+    float v;
+    float fold = 0.0;
+    if (uFly > 0.0) {                       // the flyback: the scan squashed, folded at the top, sat low
+        float a = uFly;
+        float drop = a * 10.0 + sin(uT * 0.6) * a * 1.5 + sin(uT * 7.3) * a * a * 0.8;
+        float y0 = a * 34.0;                // (the picture's top rows, folded back)
+        float h = 3.0 + a * 13.0;           // (into this band)
+        float py = q.y - drop;
+        q.x += a * 3.0 + sin(py * 0.9 + uT * 31.0) * a * a * a * 0.9;   // (a little off to the side, the lines unsteady)
+        if (py < 0.0) v = 0.0;
+        else {
+            float u = py / (240.0 - drop);
+            float sy = y0 + (240.0 - y0) * pow(u, 1.0 - 0.3 * a);
+            v = tube(vec2(q.x, sy), g);
+            v += 0.55 * a * tube(vec2(q.x - 1.6 - 2.5 * a, sy), g);   // (bright edges smearing right)
+            if (py < h) {                   // the fold: the top rows again, reversed, piled into the band
+                float fy = y0 * (1.0 - py / h);
+                v += (1.0 + a) * tube(vec2(q.x + 1.0, fy), g);
+                fold = a * (1.6 * exp(-py / 2.0) + 0.45 * (1.0 - py / h));   // (the beam piled up: a bright line)
+            }
+            v *= 1.0 - a * 0.32 * (0.5 + 0.5 * sin(q.x * 1.25 - q.y * 3.3));   // (lines pairing: a fine hatch)
+        }
+    } else v = tube(q, g);
+    v = min(255.0, v * hum + fold * 60.0);
     vec3 c = texture2D(uRamp, vec2((floor(v) + 0.5) / 256.0, 0.5)).rgb;
+    if (uCap > 0.0) {                       // ... and the purity gone at the top corners
+        float side = min(g.x, 240.0 - g.x);
+        float w = pow(uCap, 1.3) * exp(-side / 26.0) * exp(-g.y / 34.0);
+        float l = max(c.r, max(c.g, c.b));
+        c = mix(c, l * vec3(0.95, 0.25, 1.0), clamp(w * 1.4, 0.0, 0.9)) + vec3(0.30, 0.02, 0.36) * w * 0.6;
+    }
     if (uDg >= 0.0) {                       // ... and its colours smear across the glass, strongest at the edges
         float m = exp(-2.0 * uDg);
         vec2 dd = (q - 120.0) / 120.0;
