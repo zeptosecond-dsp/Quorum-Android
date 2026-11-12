@@ -17,7 +17,7 @@ Wendy Carlos's Superjust, the 22-EDO temperaments' scales and scales for the tun
 ## The rack
 
 The app is a rack face in landscape, the same as [Arcturus S6 for Android](https://github.com/zeptosecond-dsp/Arcturus-Android)'s
-but in brushed aluminium: the tube at the left (amber, until another phosphor is chosen on Global: VDU), as tall as the
+in grey: the tube at the left (amber, until another phosphor is chosen on Global: VDU), as tall as the
 screen in a thin black bezel; two 5.25" drives standing on end, their lights green (the first one's flickers while the
 disk works); and two knobs: **BRIGHTNESS** (the tube's, the same as Global: VDU's) and **MASTER LEVEL** (the output's
 VCA). Drag a knob up or to the right to turn it up.

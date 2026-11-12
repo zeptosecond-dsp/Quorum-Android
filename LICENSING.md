@@ -13,7 +13,7 @@ in `LICENSE`).
 - **Oboe** (Google), the audio library, is Apache-2.0, fetched at build time.
 - **The rack face's pictures** (`app/src/main/res/drawable-nodpi/`): `knob_cap.png` is the WAVEKOMPUTER 3000's
   (Zeptosecond DSP); `drive.png` (cut from a photograph of a 5.25" drive, mirrored, its lens turned green),
-  `handle_tex.jpg` (the handles' covering) and `rack_bg.jpg` (the brushed aluminium plate, enlarged, its grain redrawn)
+  `handle_tex.jpg` (the handles' covering) and `rack_bg.jpg` (the plate's grey finish)
   are pictures supplied by Zeptosecond DSP, or made from them.
 - **The floppy drive's sounds** (`engine/android/sounds/DISK1.wav`, `DISK3.wav`, `DISKSAVE.wav`, and the data made from
   them, `engine/android/vt_samples.h`) are recordings by **ullvieib** on [Freesound](https://freesound.org/people/ullvieib/),
