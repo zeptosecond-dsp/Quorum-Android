@@ -36,8 +36,11 @@
  * Rules of the road (the chip has no FPU and no libgcc): integers only, no float, no 64-bit division.
  * tests/host.c runs this file on a computer: the screen as a PNG, the sound as a WAV. */
 #define APP_NAME "QUORUM"
-#ifdef QUORUM_ANDROID
-#define Q_VERSION "HW 0.1"                      /* (the hardware fork: engine/android/android_hw.h) */
+#if defined(QUORUM_ANDROID) && !defined(HW_ORIG)
+#define QUORUM_HW                               /* (the hardware fork's engine; HW_ORIG: tests, the engine as it was) */
+#endif
+#ifdef QUORUM_HW
+#define Q_VERSION "HW 0.2"                      /* (the hardware fork: engine/android/android_hw.h) */
 #else
 #define Q_VERSION "1.1.1"
 #endif
@@ -853,7 +856,7 @@ static void fg_step(uint32_t k, uint32_t g)     /* one FG, one block: S6's Serge
 /* the strikes in the interrupt: a gate's rise starts a trill (one hit, or COUNT hits SPACE apart with a velocity
  * pattern); Bow / Breath hold while the gate is high */
 static uint32_t kgprev[2], kman_seen[2], tr_left[2], tr_i[2], tr_wait[2];
-#ifdef QUORUM_ANDROID
+#ifdef QUORUM_HW
 static void hw_strike_hit(uint32_t s, int32_t v);
 #endif
 static void strike_hit(uint32_t s, int32_t v)   /* kick every member, v = the hit's velocity (Q15) */
@@ -861,7 +864,7 @@ static void strike_hit(uint32_t s, int32_t v)   /* kick every member, v = the hi
     uint32_t h;
     for (h = 0; h < NP; h++) {
         int32_t add = (int32_t)(((int64_t)kamp_t[s][h] * v) >> 15), pk, n;
-#ifdef QUORUM_ANDROID
+#ifdef QUORUM_HW
         hw_strike_hit(s, v);                    /* (the hardware fork: the level computer's counters take the hit) */
         return;
 #endif
@@ -1333,7 +1336,7 @@ static int32_t soft_out(int32_t x)              /* linear to 20000, then bending
     y = 20000 + a * 12000 / (a + 12000);
     return x < 0 ? -y : y;
 }
-#ifdef QUORUM_ANDROID
+#ifdef QUORUM_HW
 #include "android_hw.h"                         /* (the hardware fork: its own render()) */
 #else
 static void render(int32_t *out)                /* SUB frames at 44.1 kHz: 16 computed, each held twice */
@@ -3293,6 +3296,9 @@ static void draw_engine(void)                   /* GLOBAL: ENGINE: the hardware 
     cv_rect(120, 100, 1, 16, PH_LO);
     cv_text(4, 122, &FONT_S, "THE LINE: HALF THE BUDGET", PH_LO);
     s[0] = 0; s_cat(s, "QUORUM "); s_cat(s, Q_VERSION);
+#ifdef QUORUM_ANDROID
+    s_cat(s, "  DROPOUTS "); s_int(s, (int32_t)atomic_load(&q_underruns));   /* (the phone kept the engine waiting: a gap in the sound) */
+#endif
     cv_text(4, 140, &FONT_S, s, PH_LO);
     knob_row(0);
 #ifdef QUORUM_ANDROID
@@ -4088,6 +4094,9 @@ static void after_change(uint32_t pg, uint32_t sb, uint32_t knob, uint32_t bk)
                                                    own: its file) */
 #endif
 }
+#ifdef HW_PROBE
+static volatile uint32_t patch_req_probe;
+#endif
 static uint32_t icur = PG_VOICE;                /* the Index's cursor (Android: a tap sets it) */
 static void app_main(void)
 {
@@ -4166,6 +4175,9 @@ static void app_main(void)
 #ifdef QUORUM_ANDROID
         touch_frame(&b);                        /* the finger: taps as the panel's own presses, or straight to a value */
         if (aset_dirty && fm1_ms - t_aset > 1000u) { aset_dirty = 0; aset_save(); }
+#ifdef HW_PROBE
+        if (patch_req_probe) { rnd_s = 0xC0FFEE01u + 7919u * patch_req_probe; patch_req_probe = 0; patch_load(P_RANDOM); }
+#endif
 #endif
         shift = (fm1_in.buttons >> BTN_SEL) & 1u;
         {                                       /* page buttons, as Arcturus */

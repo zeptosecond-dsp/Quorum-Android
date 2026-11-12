@@ -22,6 +22,8 @@
  *                  the vowel are attenuations the CPU writes (the sends), each stepping a code a tick toward what was
  *                  written; a small log / exponent pass adds grid + strike 1 + strike 2 into the one code a partial
  *                  has on each path.
+ *   CONTROL DACS   The filters' cutoff and resonance, each path's level and pan: 8-bit DACs with a small capacitor on
+ *                  each output (about 3 ms). The CPU's writes step; the voltages do not, so moving them does not click.
  *   CPU            An 8-bit processor works out every partial's frequency word, its grid level and its sends, and
  *                  writes them to the boards: about 61 times a second (Global: ENGINE, CPU: SLOW; pitch and timbre
  *                  moves step), or every tick (FAST).
@@ -280,17 +282,25 @@ static void render(int32_t *out)                /* SUB frames at 44.1 kHz */
         } else { x[0] = hw_cur[0]; x[1] = hw_cur[1]; }
         hw_pos = np;
         for (k = 0; k < 2u; k++) {
-            uint32_t m = pm_v[k];
+            /* the filter's cutoff and resonance, the level and the pan are voltages from 8-bit control DACs, each
+             * with a small capacitor on its output (about 3 ms): the CPU's writes step, the voltage does not, so a
+             * level or a pan or a cutoff being moved quickly does not click */
+            static int32_t cv[2][7];
+            static uint32_t cv_init = 1;
+            const int32_t tg[7] = {pf_v[k][0], pf_v[k][1], pq_v[k], pmk_v[k], pgl_v[k], pgr_v[k], plv_v[k]};
+            uint32_t m = pm_v[k], j;
             int32_t y = x[k];
+            if (cv_init) { uint32_t a, b; for (a = 0; a < 2u; a++) for (b = 0; b < 7u; b++) cv[a][b] = -1; cv_init = 0; }
+            for (j = 0; j < 7u; j++) cv[k][j] = cv[k][j] < 0 ? tg[j] << 8 : cv[k][j] + (((tg[j] << 8) - cv[k][j]) >> 7);
             if (m >= 2u) {
-                y = hw_svf(&svf[k][0], y, pf_v[k][0], pq_v[k]);
-                if (m == 3u) y = hw_svf(&svf[k][1], y, pf_v[k][1], pq_v[k]);
-                y = (y * pmk_v[k]) >> 12;
+                y = hw_svf(&svf[k][0], y, cv[k][0] >> 8, cv[k][2] >> 8);
+                if (m == 3u) y = hw_svf(&svf[k][1], y, cv[k][1] >> 8, cv[k][2] >> 8);
+                y = (y * (cv[k][3] >> 8)) >> 12;
             }
             y = cl(y, -200000, 200000);
-            l += (y * pgl_v[k]) >> 15;
-            r += (y * pgr_v[k]) >> 15;
-            y = (y * plv_v[k]) >> 15;           /* the sends: after the level, before the pan */
+            l += (y * (cv[k][4] >> 8)) >> 15;
+            r += (y * (cv[k][5] >> 8)) >> 15;
+            y = (y * (cv[k][6] >> 8)) >> 15;    /* the sends: after the level, before the pan */
             for (f = 0; f < 3; f++) sn[f] += y * sg[k][f];
         }
         for (f = 0; f < 3; f++) {               /* the effects take theirs at 22.05 kHz, in their own word, as before */

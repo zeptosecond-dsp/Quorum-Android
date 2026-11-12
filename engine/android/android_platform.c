@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <sys/resource.h>
 #include <time.h>
 #include <unistd.h>
 #include <math.h>
@@ -200,7 +201,7 @@ static void aset_save(void) { q_save("android", -1, &aset, sizeof aset, SECTOR_M
 #define RING 8192u                              /* frames (a power of two) */
 static int16_t q_ring[RING * 2u];
 static _Atomic uint32_t q_rw, q_rr;             /* frames written, read */
-static _Atomic uint32_t q_target = 1536u;       /* frames kept ready (~35 ms at 44.1 kHz) */
+static _Atomic uint32_t q_target = 2048u;       /* frames kept ready (~46 ms at 44.1 kHz); more after a dropout (quorum_pull) */
 static _Atomic uint32_t q_underruns;
 static uint32_t ring_fill(void) { return atomic_load(&q_rw) - atomic_load(&q_rr); }
 
@@ -318,6 +319,9 @@ static void platform_poll(void)
 static void *q_thread(void *arg)
 {
     (void)arg;
+#ifdef __ANDROID__
+    setpriority(PRIO_PROCESS, 0, -16);          /* (this thread makes the sound: ahead of the drawing, if the phone allows) */
+#endif
     app_main();                                 /* (never returns) */
     for (;;) platform_poll();
     return NULL;
@@ -338,7 +342,15 @@ void quorum_start(const char *dir)
 void quorum_pull(float *out, int32_t n)
 {
     uint32_t r = atomic_load(&q_rr), have = atomic_load_explicit(&q_rw, memory_order_acquire) - r, i, k = (uint32_t)n;
-    if (have < k) { atomic_fetch_add(&q_underruns, 1u); k = have; }
+    if (have < k) {                             /* a dropout: the engine's thread was kept from its work too long */
+        k = have;
+        if (fm1_ms > 3000u) {                   /* (not the first moments, the ring still filling) */
+            uint32_t t = atomic_load(&q_target);
+            atomic_fetch_add(&q_underruns, 1u);
+            if (t < 6144u) atomic_store(&q_target, t + 512u);   /* more kept ready from now on (up to ~140 ms): a
+                                                   little later to answer, but it does not crackle */
+        }
+    }
     {   /* MASTER LEVEL: the output's stereo VCA, modelled (as Arcturus S6's rack). The knob's law is a volume pot's
          * (unity at about 5/6 of its turn, half as much again at the top); the control voltage has a capacitor on it
          * (no zipper); the two halves of the VCA are a per cent or so apart; and it rounds off what is pushed into it

@@ -1043,3 +1043,6 @@ static void touch_draw(void)                    /* on the body's canvas (y from 
     pos = k->hi > k->lo ? (kn_get(k) - k->lo) * (BAR_W - 12) / (k->hi - k->lo) : 0;
     cv_rect(bx + 6 + pos - 1, by + BAR_H - 13, 3, 10, PH_HI);
 }
+#ifdef HW_PROBE
+void quorum_probe_rand(int32_t n) { patch_req_probe = (uint32_t)n; }
+#endif
