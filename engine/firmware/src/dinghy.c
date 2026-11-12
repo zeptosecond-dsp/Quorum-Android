@@ -1405,15 +1405,29 @@ static void render(int32_t *out)                /* SUB frames at 44.1 kHz: 16 co
         for (k = 0; k < 2; k++) {
             uint32_t m = pm_v[k];
             int32_t y = x[k];
+#ifdef QUORUM_ANDROID
+            /* (the phone) the filter's cutoff and resonance, the level and the pan glide to what the main loop set
+             * (about 3 ms): they arrive in steps, a block or more apart, and on a loud low partial a step is a click */
+            static int32_t cv[2][7];
+            static uint32_t cv_init = 1;
+            const int32_t tg[7] = {pf_v[k][0], pf_v[k][1], pq_v[k], pmk_v[k], pgl_v[k], pgr_v[k], plv_v[k]};
+            uint32_t j;
+            if (cv_init) { uint32_t a_, b_; for (a_ = 0; a_ < 2u; a_++) for (b_ = 0; b_ < 7u; b_++) cv[a_][b_] = -1; cv_init = 0; }
+            for (j = 0; j < 7u; j++) cv[k][j] = cv[k][j] < 0 ? tg[j] << 8 : cv[k][j] + (((tg[j] << 8) - cv[k][j]) >> 6);
+#define CVS(j_, v_) (cv[k][j_] >> 8)
+#else
+#define CVS(j_, v_) (v_)
+#endif
             if (m >= 2u) {
-                y = svf_bp(&svf[k][0], y, pf_v[k][0], pq_v[k]);
-                if (m == 3u) y = svf_bp(&svf[k][1], y, pf_v[k][1], pq_v[k]);
-                y = (y * pmk_v[k]) >> 12;
+                y = svf_bp(&svf[k][0], y, CVS(0, pf_v[k][0]), CVS(2, pq_v[k]));
+                if (m == 3u) y = svf_bp(&svf[k][1], y, CVS(1, pf_v[k][1]), CVS(2, pq_v[k]));
+                y = (y * CVS(3, pmk_v[k])) >> 12;
                 if (bq) y = (y + qh) & qm;
             }
-            l += (y * pgl_v[k]) >> 15;
-            r += (y * pgr_v[k]) >> 15;
-            y = (y * plv_v[k]) >> 15;           /* the sends: after the level, before the pan */
+            l += (y * CVS(4, pgl_v[k])) >> 15;
+            r += (y * CVS(5, pgr_v[k])) >> 15;
+            y = (y * CVS(6, plv_v[k])) >> 15;   /* the sends: after the level, before the pan */
+#undef CVS
             for (f = 0; f < 3; f++) sn[f] += y * sg[k][f];
         }
         for (f = 0; f < 3; f++) {
@@ -3269,6 +3283,9 @@ static void draw_engine(void)                   /* GLOBAL: ENGINE: the hardware 
     cv_rect(120, 100, 1, 16, PH_LO);
     cv_text(4, 122, &FONT_S, "THE LINE: HALF THE BUDGET", PH_LO);
     s[0] = 0; s_cat(s, "QUORUM "); s_cat(s, Q_VERSION);
+#ifdef QUORUM_ANDROID
+    s_cat(s, "  DROPOUTS "); s_int(s, (int32_t)atomic_load(&q_underruns));   /* (the phone kept the engine waiting: a gap in the sound) */
+#endif
     cv_text(4, 140, &FONT_S, s, PH_LO);
     knob_row(0);
 #ifdef QUORUM_ANDROID
