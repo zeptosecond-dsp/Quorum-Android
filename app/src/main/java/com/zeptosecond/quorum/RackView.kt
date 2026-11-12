@@ -23,7 +23,7 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * The rack face, the same as Arcturus S6's (after the PPG Waveterm's) but in brushed aluminium
+ * The rack face, the same as Arcturus S6's (after the PPG Waveterm's) but in grey
  * (res/drawable-nodpi/rack_bg.jpg): a handle near either end, and from the left the tube, as tall as the screen in a
  * thin black plastic bezel; two 5.25" drives standing on end; and two knobs, BRIGHTNESS (the tube's own, the same
  * control as Global: VDU's) and MASTER LEVEL (the output's VCA). Both drives' lights glow green; the first one's
@@ -164,7 +164,7 @@ class RackView(context: Context, private val crt: CrtView) : ViewGroup(context) 
 
     /**
      * One lamp, dark and lit. A 3 mm round LED of about 1980 seen end on, through its hole in the plate: a dome of
-     * green-tinted, milky (diffused) epoxy. Dark, it is a deep bottle green with the room's light on its shoulder.
+     * green-tinted, milky (diffused) epoxy. Dark, it is a bottle green, clearly tinted, with the room's light on its shoulder.
      * Lit, gallium phosphide gives a yellowish green (about 565 nm) and not much of it: the diffuser spreads it over
      * the whole dome, hotter over the chip in the middle, falling off to the rim, with only a small soft glow on the
      * plate around it: nothing like a modern high-brightness green.
@@ -182,7 +182,7 @@ class RackView(context: Context, private val crt: CrtView) : ViewGroup(context) 
             q.color = 0x90000000.toInt(); cv.drawCircle(c - rr * 0.05f, c - rr * 0.07f, rr * 1.20f, q)   // (its upper lip, in shadow)
             q.color = 0xFF050806.toInt(); cv.drawCircle(c, c, rr * 1.13f, q)                      // (the gap round the lens)
             q.shader = RadialGradient(c - rr * 0.22f, c - rr * 0.28f, rr * 1.25f,
-                intArrayOf(0xFF2F8A5C.toInt(), 0xFF1E6442.toInt(), 0xFF113B27.toInt(), 0xFF091F15.toInt()),
+                intArrayOf(0xFF4FB27E.toInt(), 0xFF35895D.toInt(), 0xFF22603F.toInt(), 0xFF133A25.toInt()),
                 floatArrayOf(0f, 0.38f, 0.78f, 1f), Shader.TileMode.CLAMP)
             cv.drawCircle(c, c, rr, q)
             q.shader = null
@@ -196,7 +196,7 @@ class RackView(context: Context, private val crt: CrtView) : ViewGroup(context) 
             cv.drawCircle(c - rr * 0.40f, c - rr * 0.46f, rr * 0.11f, q)
         }
         val off = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
-        Canvas(off).let { cv -> body(cv); glint(cv, 0x58) }
+        Canvas(off).let { cv -> body(cv); glint(cv, 0x6A) }
         val on = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         Canvas(on).let { cv ->
             q.shader = RadialGradient(c, c, half,   // the glow on the plate: small, soft

@@ -11,8 +11,8 @@ android {
         applicationId = "com.zeptosecond.quorum"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "1.2-hw3"
+        versionCode = 16
+        versionName = "1.2-hw3.1"
         applicationIdSuffix = ".hw"             // the hardware fork: installs beside Quorum, with its own patches
         externalNativeBuild {
             cmake {
