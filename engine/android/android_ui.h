@@ -43,8 +43,9 @@ static void tgt_add2(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t kind, 
 typedef struct { uint8_t ver, lines, dark, pen; } aset1_t;   /* (the file as builds before the vintage page wrote it) */
 typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, pad; } aset3_t;   /* (before
                                                    CAPACITOR and FLYBACK) */
-typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, cap, fly, pad[3]; } aset_t;
-static aset_t aset = {5, 2, 6, 1, 0, 1, 0, 2, 2, 3, 1, 2, 1, {0, 0, 0}};   /* (VINTAGE: a taste of everything, ready for
+typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, cap, fly, master, pad[2]; } aset_t;   /* (master:
+                                                   the rack's MASTER LEVEL knob, 0..255; 212: unity) */
+static aset_t aset = {6, 2, 6, 1, 0, 1, 0, 2, 2, 3, 1, 2, 1, 212, {0, 0}};   /* (VINTAGE: a taste of everything, ready for
                                                    the button: DISK OK, a little burn, persistence, capacitor, flyback) */   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
                                                    lightpen's cursor; (Global: VINTAGE) vint: vintage mode (the button over
                                                    the keyboard), off until asked: the disk and the tube's faults all
@@ -102,6 +103,9 @@ static volatile uint32_t nav_on;                /* (the arrows over the keyboard
                                                    parts, nav_hdr 1..3; its rect) */
 static uint32_t nav_hdr;
 static int32_t nav_r[4];
+static volatile uint32_t pn_bright;             /* (the rack's BRIGHTNESS knob: 1 + the brightness asked, 0..10) */
+static volatile uint32_t pn_disk;               /* (the drive working: the rack's drive light) */
+static uint32_t aset_amber;                     /* (a file from before the rack face: the tube turns amber, once) */
 static volatile uint32_t pn_vint;               /* (the VINTAGE button over the keyboard: 1 off, 2 on, asked) */
 static char nm_name[9];
 static void cmd_label(uint32_t id, char *s);   /* (android_touch.c) a command word as it reads now */

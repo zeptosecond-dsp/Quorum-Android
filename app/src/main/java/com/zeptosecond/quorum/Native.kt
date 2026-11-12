@@ -28,7 +28,8 @@ object Native {
     @JvmStatic external fun screen(out: IntArray)
 
     /** The tube's inputs, for [CrtView]: [intensity] 240 x 240 bytes and [ramp] 256 RGBA (direct buffers); [gain]
-     *  4: the tube's gain in the middle and the corners, scanlines a screen height, their darkness in per cent. */
+     *  7: the tube's gain in the middle and the corners, scanlines a screen height, their darkness in per cent, the
+     *  degauss (ms since, or -1), the capacitors' and the flyback's faults (0..10). */
     @JvmStatic external fun crt(intensity: java.nio.ByteBuffer, ramp: java.nio.ByteBuffer, gain: IntArray)
 
     /** A finger on the screen: [act] 0 down, 1 move, 2 up; [x], [y] on the glass in the firmware's pixels (0..240). */
@@ -39,12 +40,13 @@ object Native {
     /** The name typed ([ok]), or the dialog closed without one. */
     @JvmStatic external fun nameSet(name: String?, ok: Boolean)
 
+    // (the stand-in panel's keyboard, split and strike plates are off the rack for now; the engine keeps their ends)
     /** The keyboard's split: [mode] 1 A, 2 A+B, 3 B; [routeGet] as it is now (0: neither path on the keys). */
     @JvmStatic external fun route(mode: Int)
     @JvmStatic external fun routeGet(): Int
     /** Strike [s] (0, 1) by hand: down and up (Bow and Breath sound while it is held). */
     @JvmStatic external fun strike(s: Int, down: Boolean)
-    /** Grid [g]'s row now (bit 0 its first cell); [cell] turns one of its cells over. */
+    /** Grid [g]'s row now (bit 0 its first cell); [cell] turns one of its cells over: the rack's two rows of lights. */
     @JvmStatic external fun row(g: Int): Int
     @JvmStatic external fun cell(g: Int, c: Int)
     /** The strikes' gates now: bit 0 strike 1, bit 1 strike 2. */
@@ -53,7 +55,15 @@ object Native {
     @JvmStatic external fun fgLevel(): Int
     /** 1 while the boot screen (the petri dish) is up. */
     @JvmStatic external fun booting(): Int
-    /** VINTAGE (the button over the keyboard): the disk and the tube's faults, all on or all off at once. */
+    /** The rack's knobs. BRIGHTNESS: the tube's, the same as Global: VDU's (0..10). MASTER LEVEL: the output's VCA
+     *  (0..255; 212 is unity). */
+    @JvmStatic external fun bright(): Int
+    @JvmStatic external fun brightSet(v: Int)
+    @JvmStatic external fun master(): Int
+    @JvmStatic external fun masterSet(v: Int)
+    /** The drive working (an access, a save's click): its light flickers. */
+    @JvmStatic external fun disk(): Boolean
+    /** VINTAGE MODE (Global: VINTAGE's own line sets it on the tube): the disk and the tube's faults, all on or all off. */
     @JvmStatic external fun vintage(on: Boolean)
     @JvmStatic external fun vintageGet(): Boolean
     /** The arrows over the keyboard: move the box (0 up, 1 down, 2 left, 3 right); SELECT taps what it is on. */

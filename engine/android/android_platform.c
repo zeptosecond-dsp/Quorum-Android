@@ -170,11 +170,12 @@ static void aset_load(void)
     aset3_t a3;
     aset1_t o;
     aset_t d = aset;                            /* (the defaults) */
-    if (q_load("android", -1, &a, sizeof a) == 0 && (a.ver == 4u || a.ver == 5u)) aset = a;
+    uint32_t old = 0;                           /* (a file from before the rack face: no master level in it) */
+    if (q_load("android", -1, &a, sizeof a) == 0 && (a.ver >= 4u && a.ver <= 6u)) { aset = a; old = a.ver < 6u; }
     else if (q_load("android", -1, &a3, sizeof a3) == 0 && a3.ver == 3u) {   /* (a file from before the tube's faults) */
         aset.lines = a3.lines; aset.dark = a3.dark; aset.pen = a3.pen; aset.vint = a3.vint; aset.odds = a3.odds;
         aset.drive = a3.drive; aset.burn = a3.burn; aset.persist = a3.persist; aset.draw = a3.draw; aset.warm = a3.warm;
-        aset.cap = 0; aset.fly = 0; aset.ver = 4;
+        aset.cap = 0; aset.fly = 0; aset.ver = 4; old = 1;
     }
     if (aset.ver < 5u && !aset.burn && !aset.persist && !aset.cap && !aset.fly) {   /* (an older file, the tube's age all
                                                    at nothing: the new defaults' taste of it) */
@@ -182,9 +183,10 @@ static void aset_load(void)
     }
     else if (q_load("android", -1, &o, sizeof o) == 0 && (o.ver == 1u || o.ver == 2u)) {   /* (an older file: its VDU
                                                    settings kept, the vintage ones as new) */
-        aset.lines = o.lines; aset.dark = o.dark; aset.pen = o.ver == 1u ? 1u : o.pen;
+        aset.lines = o.lines; aset.dark = o.dark; aset.pen = o.ver == 1u ? 1u : o.pen; old = 1;
     }
-    aset.ver = 5;
+    if (old) { aset.master = d.master; aset_amber = 1; }   /* (unity; and the new default phosphor, this once) */
+    aset.ver = 6;
     if (aset.cap > 10u) aset.cap = 0; if (aset.fly > 10u) aset.fly = 0;
     if (aset.pen > 1u) aset.pen = 1;
     if (aset.lines > 4u) aset.lines = 2;
@@ -337,9 +339,20 @@ void quorum_pull(float *out, int32_t n)
 {
     uint32_t r = atomic_load(&q_rr), have = atomic_load_explicit(&q_rw, memory_order_acquire) - r, i, k = (uint32_t)n;
     if (have < k) { atomic_fetch_add(&q_underruns, 1u); k = have; }
-    for (i = 0; i < k; i++) {
-        out[2u * i] = (float)q_ring[2u * ((r + i) % RING)] * (1.0f / 32768.0f);
-        out[2u * i + 1u] = (float)q_ring[2u * ((r + i) % RING) + 1u] * (1.0f / 32768.0f);
+    {   /* MASTER LEVEL: the output's stereo VCA, modelled (as Arcturus S6's rack). The knob's law is a volume pot's
+         * (unity at about 5/6 of its turn, half as much again at the top); the control voltage has a capacitor on it
+         * (no zipper); the two halves of the VCA are a per cent or so apart; and it rounds off what is pushed into it
+         * instead of clipping hard */
+        static float g;
+        const float kn = (float)aset.master * (1.0f / 255.0f), target = 1.625f * kn * kn * (0.35f + 0.65f * kn);
+        for (i = 0; i < k; i++) {
+            float l = (float)q_ring[2u * ((r + i) % RING)] * (1.0f / 32768.0f), rr = (float)q_ring[2u * ((r + i) % RING) + 1u] * (1.0f / 32768.0f);
+            g += 0.0025f * (target - g);
+            l *= g * 1.012f; rr *= g * 0.991f;
+            l = l > 1.5f ? 1.0f : l < -1.5f ? -1.0f : l - l * l * l * (4.0f / 27.0f);
+            rr = rr > 1.5f ? 1.0f : rr < -1.5f ? -1.0f : rr - rr * rr * rr * (4.0f / 27.0f);
+            out[2u * i] = l; out[2u * i + 1u] = rr;
+        }
     }
     for (; i < (uint32_t)n; i++) out[2u * i] = out[2u * i + 1u] = 0.0f;
     atomic_store_explicit(&q_rr, r + k, memory_order_release);

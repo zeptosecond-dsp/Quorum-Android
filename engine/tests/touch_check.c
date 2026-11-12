@@ -33,5 +33,12 @@ int main(){
   tap(100, 22+2+2*18+8);            /* SCANLINES: cycles */
   tap(100, 22+2+3*18+8);            /* DARKNESS: bar */
   run(200); shot("build/desktop/touch-5_vdu.ppm");
+  tap(100, 22+2+3*18+8);            /* (again: the bar away) */
+  tap(150, 10); tap(150, 10);       /* -> ENGINE -> VINTAGE */
+  run(200); shot("build/desktop/touch-6_vintage.ppm");
+  tap(100, 22+160);                 /* VINTAGE MODE: on (its own line: the rack has no button for it) */
+  run(300); shot("build/desktop/touch-7_vintage_on.ppm");
+  tap(100, 22+160);                 /* ... and off again */
+  run(300);
   return 0;
 }

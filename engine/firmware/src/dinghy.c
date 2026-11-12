@@ -3172,7 +3172,7 @@ static void draw_vdu(void)                      /* GLOBAL: VDU, as Arcturus S6: 
 #endif
 #ifdef QUORUM_ANDROID
 static void draw_vintage(void)                  /* (Android) GLOBAL: VINTAGE: the machine's moods, all the phone's own; all
-                                                   of them heard and seen only with VINTAGE on (the button over the keys),
+                                                   of them heard and seen only with VINTAGE MODE on (the line under them),
                                                    set here at any time */
 {
     static const char *const NAME[8] = {"DISK", "DRIVE", "SCREEN BURN", "PERSISTENCE", "DRAW SPEED", "WARM-UP",
@@ -3191,7 +3191,9 @@ static void draw_vintage(void)                  /* (Android) GLOBAL: VINTAGE: th
         }
     }
     cv_rect(0, 149, 240, 1, PH_LO);
-    cv_text(4, 154, &FONT_S, aset.vint ? "VINTAGE: ON  (BUTTON ON KEYS)" : "VINTAGE: OFF (BUTTON ON KEYS)", aset.vint ? PH_HI : PH_MID);
+    cv_text(4, 154, &FONT_S, aset.vint ? "VINTAGE MODE: ON" : "VINTAGE MODE: OFF", aset.vint ? PH_HI : PH_MID);   /* (all of it on or
+                                                   off at once: touch it) */
+    tgt_add(0, BODY_Y + 151, 240, 18, T_OPT, 1);
     cv_text(4, 186, &FONT_S, "FLOPPY: ULLVIEIB, CC BY 4.0", PH_LO);   /* (the recordings' credit) */
     CMDS(C_DEGAUSS);
     cv_out(BODY_Y);
@@ -4075,7 +4077,15 @@ static void app_main(void)
     for (i = 0; i < sizeof v_mem / sizeof v_mem[0]; i++) v_mem[i] = 0;
     verb_init();
     (void)&dlp;
-    if (settings_load(&gset, sizeof gset)) { gset.boots = 0; gset.phos = 0; gset.bright = 7; gset.eng = 2; gset.pad = 0; }
+    if (settings_load(&gset, sizeof gset)) { gset.boots = 0; gset.phos = 0; gset.bright = 7; gset.eng = 2; gset.pad = 0;
+#ifdef QUORUM_ANDROID
+        gset.phos = 2;                          /* (the rack's tube: amber, until another is chosen) */
+#endif
+    }
+#ifdef QUORUM_ANDROID
+    if (aset_amber) { gset.phos = 2; aset_amber = 0; aset_dirty = 1; t_aset = fm1_ms; }   /* (a build from before the rack
+                                                   face: amber this once; the file written as new, so not again) */
+#endif
     if (gset.phos >= NPHOS) gset.phos = 0;
     if (gset.bright > 10u) gset.bright = 7;
     crt_init();

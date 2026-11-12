@@ -439,7 +439,13 @@ static void vt_end(void)                        /* the access over (or vintage s
 static void vt_poll(void)                       /* each pass: a page changed (by anything) may wait; an access ends */
 {
     static uint32_t vp = 0xFFFFFFFFu, vs;
-    if (pn_vint) {                              /* the VINTAGE button: off, everything gone at once */
+    if (pn_bright) {                            /* the rack's BRIGHTNESS knob: the same as Global: VDU's */
+        uint32_t v = pn_bright - 1u;
+        pn_bright = 0;
+        if (v != gset.bright) { gset.bright = (uint8_t)v; crt_build(); hdr_force = 1; vdu_dirty = 1; t_vdu = fm1_ms; }
+    }
+    pn_disk = vt_busy || vt_cf_on || vt_play;   /* (the drive working: its light) */
+    if (pn_vint) {                              /* VINTAGE MODE: off, everything gone at once */
         aset.vint = pn_vint == 2u; pn_vint = 0; aset_dirty = 1; t_aset = fm1_ms;
         if (!aset.vint && vt_busy) { vt_end(); vt_play = 0; vt_ret_page = 0xFFFFFFFFu; }
     }
@@ -768,7 +774,15 @@ void quorum_strike(int32_t s, int32_t down) { if (down) pn_st_dn[s & 1]++; else 
 /* the lights: an FG's level to show (0..32767), or -1 (the grids' rows); the boot screen up */
 int32_t quorum_fg_level(void) { return pn_fg; }
 int32_t quorum_booting(void) { return (int32_t)pn_boot; }
-/* the VINTAGE button: set (the disk and the tube's faults all on, or all off at once), and as it is */
+/* the rack's knobs (RackView.kt). BRIGHTNESS: the tube's, the same as Global: VDU's (0..10). MASTER LEVEL: the
+ * output's VCA (0..255; android_platform.c) */
+int32_t quorum_bright(void) { return pn_bright ? (int32_t)pn_bright - 1 : (int32_t)gset.bright; }
+void quorum_bright_set(int32_t v) { pn_bright = (uint32_t)(v < 0 ? 0 : v > 10 ? 10 : v) + 1u; }
+int32_t quorum_master(void) { return (int32_t)aset.master; }
+void quorum_master_set(int32_t v) { aset.master = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v); aset_dirty = 1; t_aset = fm1_ms; }
+/* the drive working (an access, a save's click): its light flickers */
+int32_t quorum_disk(void) { return (int32_t)pn_disk; }
+/* VINTAGE MODE: set (the disk and the tube's faults all on, or all off at once), and as it is */
 void quorum_vintage(int32_t on) { pn_vint = on ? 2u : 1u; }
 int32_t quorum_vintage_get(void) { return pn_vint ? (int32_t)(pn_vint == 2u) : (int32_t)aset.vint; }
 /* the strikes' gates, for the buttons' glow */

@@ -37,6 +37,11 @@ void quorum_nav_select(void);
 int32_t quorum_bar_get(void);
 void quorum_bar_set(int32_t f);
 void quorum_name_set(const char *s, int32_t ok);
+int32_t quorum_bright(void);
+void quorum_bright_set(int32_t v);
+int32_t quorum_master(void);
+void quorum_master_set(int32_t v);
+int32_t quorum_disk(void);
 }
 
 #define TAG "Quorum"
@@ -177,5 +182,11 @@ JNI void JNICALL FN(nav)(JNIEnv *, jclass, jint dir) { quorum_nav(dir); }
 JNI void JNICALL FN(navSelect)(JNIEnv *, jclass) { quorum_nav_select(); }
 JNI jint JNICALL FN(barGet)(JNIEnv *, jclass) { return quorum_bar_get(); }
 JNI void JNICALL FN(barSet)(JNIEnv *, jclass, jint f) { quorum_bar_set(f); }
+// the rack's knobs (BRIGHTNESS, MASTER LEVEL) and its drive light
+JNI jint JNICALL FN(bright)(JNIEnv *, jclass) { return quorum_bright(); }
+JNI void JNICALL FN(brightSet)(JNIEnv *, jclass, jint v) { quorum_bright_set(v); }
+JNI jint JNICALL FN(master)(JNIEnv *, jclass) { return quorum_master(); }
+JNI void JNICALL FN(masterSet)(JNIEnv *, jclass, jint v) { quorum_master_set(v); }
+JNI jboolean JNICALL FN(disk)(JNIEnv *, jclass) { return quorum_disk() != 0; }
 JNI jint JNICALL FN(row)(JNIEnv *, jclass, jint g) { return (jint)quorum_row(g); }
 JNI void JNICALL FN(cell)(JNIEnv *, jclass, jint g, jint c) { quorum_cell(g, c); }

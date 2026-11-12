@@ -45,8 +45,8 @@ class CrtView(context: Context) : GLSurfaceView(context) {
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = MeasureSpec.getSize(widthMeasureSpec)
-        setMeasuredDimension(w, w)
+        val s = minOf(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec))   // (square: the rack says how big)
+        setMeasuredDimension(s, s)
     }
 
     private inner class Renderer : GLSurfaceView.Renderer {
@@ -262,6 +262,22 @@ void main() {
         c += vec3(0.20, 0.08, 0.25) * exp(-uDg * 14.0);
     }
     if (mod(floor(gl_FragCoord.y), uLinePx) >= uLinePx - 1.0) c *= uLineDim;
+    {                                       // the glass sits back in its bezel: darker to its edges, darker still in
+                                            // its corners, and the bezel's own shadow along the top and the left
+                                            // (the room's light comes from there)
+        vec2 hp = (g - 120.0) / 120.0;
+        vec2 ae = abs(hp);
+        float sh = 1.0 - 0.62 * smoothstep(0.84, 1.0, max(ae.x, ae.y));
+        sh *= 1.0 - 0.50 * smoothstep(0.92, 1.38, length(ae));
+        sh *= 1.0 - 0.38 * max(1.0 - smoothstep(-1.0, -0.87, hp.y), 1.0 - smoothstep(-1.0, -0.89, hp.x));
+        c *= sh;
+    }
+    {                                       // the room's light on the glass: a soft highlight, top left
+        vec2 hp = (g - 120.0) / 120.0;
+        float hx = (hp.x + 0.55) * (hp.x + 0.55), hy = (hp.y + 0.62) * (hp.y + 0.62);
+        c += vec3(0.90, 0.95, 1.0) * (exp(-(hx / 0.10 + hy / 0.03)) * 0.058 + exp(-(hx / 0.022 + hy / 0.007)) * 0.058);   // (a wide soft
+                                            // glow and a brighter heart: plain to see on a dark page, never over the text)
+    }
     gl_FragColor = vec4(c, 1.0);
 }
 """

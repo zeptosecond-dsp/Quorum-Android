@@ -12,12 +12,13 @@ import android.os.Looper
 import android.text.InputFilter
 import android.text.InputType
 import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.LinearLayout
 
-/** Step one: the engine, its own screen, and a stand-in FM-1 panel to play it with. */
+/** The engine and its rack face: the tube (touched as with a lightpen), two drives, two knobs, and each grid's row
+ *  as a line of green lights. Landscape. */
 class MainActivity : Activity() {
     private lateinit var crt: CrtView
     private val ui = Handler(Looper.getMainLooper())
@@ -78,15 +79,10 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Native.start(filesDir.absolutePath)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(5, 8, 6))
-        }
         crt = CrtView(this)
-        root.addView(crt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT))
-        root.addView(PanelView(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        // keep clear of the status bar, notches and the gesture bar (Android 15 draws apps edge to edge)
+        val root = RackView(this, crt)
+        root.setBackgroundColor(Color.rgb(176, 177, 179))
+        // what is on the rack keeps clear of the cutout and any bars left showing; the plate itself fills the screen
         root.setOnApplyWindowInsetsListener { v, insets ->
             if (Build.VERSION.SDK_INT >= 30) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
@@ -99,6 +95,31 @@ class MainActivity : Activity() {
             insets
         }
         setContentView(root)
+        fullScreen()
+    }
+
+    /** The whole screen: the rack's plate runs under the camera's cutout, the bars are hidden (a swipe brings them). */
+    private fun fullScreen() {
+        if (Build.VERSION.SDK_INT >= 28)
+            window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+            window.insetsController?.let {
+                it.hide(WindowInsets.Type.systemBars())
+                it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+                android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) fullScreen()
     }
 
     override fun onResume() {
