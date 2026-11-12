@@ -40,7 +40,7 @@
 #define QUORUM_HW                               /* (the hardware fork's engine; HW_ORIG: tests, the engine as it was) */
 #endif
 #ifdef QUORUM_HW
-#define Q_VERSION "HW 0.2"                      /* (the hardware fork: engine/android/android_hw.h) */
+#define Q_VERSION "HW 0.3"                      /* (the hardware fork: engine/android/android_hw.h) */
 #else
 #define Q_VERSION "1.1.1"
 #endif
@@ -94,6 +94,9 @@ static uint32_t frnd = 0x2545F491u;
 /* the paths: mode (0 off, 1 vowel, 2 band pass 12 dB, 3 band pass 24 dB), the SVFs' f and damping (Q14), makeup
  * (Q12), the gains to left and right with the level in them (Q15) */
 static volatile uint8_t pm_v[2];
+#ifdef QUORUM_HW
+static volatile uint32_t hw_lon_v[2], hw_lcut_v[2], hw_lres_v[2];   /* each low pass: in, and its two control DACs' codes (0..255) */
+#endif
 static volatile int32_t pf_v[2][2], pq_v[2], pmk_v[2], pgl_v[2], pgr_v[2], plv_v[2];   /* plv: the level alone (the sends) */
 typedef struct { int32_t lo, bp; } svf_t;
 static svf_t svf[2][2];
@@ -185,6 +188,9 @@ enum { D_TILT, D_STR, D_LVL, D_SPLIT, D_FILTA, D_FILTB, D_PANA, D_PANB, D_PITA, 
        D_EG1, D_EG2, D_EG3, D_EG4,              /* (Android) each envelope's length (up: shorter); new ones go last, so
                                                    saved patches keep their pins */
 #endif
+#ifdef QUORUM_HW
+       D_LPFA, D_LPFB,                          /* (the hardware fork) each path's analogue low pass: its cutoff */
+#endif
        NDST };   /* (the phaser's left / right sweep, the delays' time and
                                                         feedback, the reverb's decay and return) */
 /* the gate matrix: rows (sources) and columns (destinations); pins OR'd into each column */
@@ -262,6 +268,9 @@ typedef struct {
     rtx_t rt;
     uint8_t kbd[2], droot[2];                   /* each path: the keys move it (1), or it holds droot (a drone) */
     kseq_t ks;
+#ifdef QUORUM_HW
+    uint8_t lpf[2], lcut[2], lres[2];           /* (the hardware fork) each path's analogue low pass: in / out, cutoff, resonance */
+#endif
     /* (new settings go here, above the matrices: a saved patch keeps everything before them, and the matrices by
      * row and column) */
     int8_t dep[NSRC][NDST];                     /* the mod matrix: 0 = no pin, +-63 */
@@ -537,6 +546,13 @@ static void mod_apply(void)                     /* E = P, moved by the matrix (a
     E.spoint = m8(P.spoint, MK(D_SPLIT), 0, 127);
     E.pth[0].freq = m8(P.pth[0].freq, MK(D_FILTA), 0, 127);
     E.pth[1].freq = m8(P.pth[1].freq, MK(D_FILTB), 0, 127);
+#ifdef QUORUM_HW
+    for (k = 0; k < 2u; k++) {                  /* the low passes: 8-bit control DACs (the knob's 128 places, and the matrix between them) */
+        hw_lcut_v[k] = (uint32_t)cl((int32_t)P.lcut[k] * 2 + (macc[D_LPFA + k] >> 7), 0, 255);
+        hw_lres_v[k] = (uint32_t)P.lres[k] * 2u;
+        hw_lon_v[k] = P.lpf[k] & 1u;
+    }
+#endif
     E.pth[0].pan = m8(P.pth[0].pan, MK(D_PANA), 0, 127);
     E.pth[1].pan = m8(P.pth[1].pan, MK(D_PANB), 0, 127);
     pitch_mod[0] = macc[D_PITA] * 3 / 32;       /* +-12 semitones at full, 1/256 semitone */
@@ -1595,14 +1611,28 @@ static void gins(char *s, uint32_t d)           /* what is pinned into destinati
     for (r = 0; r < NGS && n < 4u; r++) if (P.gmat[r] >> d & 1u) { if (n) s_cat(s, " "); s_cat(s, GS_NAME[r]); n++; }
     if (!n) s_cat(s, "-");
 }
-static const char *const DST_SHORT[NDST] = {"TLT", "STR", "LVL", "SPL", "FLA", "FLB", "PNA", "PNB", "PTA", "PTB",
+static const char *const DST_SHORT[NDST] = {"TLT", "STR", "LVL", "SPL",
+#ifdef QUORUM_HW
+    "VWA", "VWB",
+#else
+    "FLA", "FLB",
+#endif
+    "PNA", "PNB", "PTA", "PTB",
     "1PT", "1VL", "1SH", "1LV", "2PT", "2VL", "2SH", "2LV", "RLA", "RLB", "SPA", "SPB", "F1R", "F2R", "F3R", "F4R", "QRT", "SQ1", "SQ2", "SQ3",
     "PHL", "PHR", "DLT", "DLF", "RVD", "RVR", "MTA", "MTB"
 #ifdef QUORUM_ANDROID
     , "E1L", "E2L", "E3L", "E4L"
 #endif
+#ifdef QUORUM_HW
+    , "LPA", "LPB"
+#endif
     };
-static const char *const DST_NAME[NDST] = {"TILT", "STRETCH", "OUT LEVEL", "SPLIT POINT", "FILTER A", "FILTER B",
+static const char *const DST_NAME[NDST] = {"TILT", "STRETCH", "OUT LEVEL", "SPLIT POINT",
+#ifdef QUORUM_HW
+    "VOWEL A", "VOWEL B",
+#else
+    "FILTER A", "FILTER B",
+#endif
     "PAN A", "PAN B", "PITCH A", "PITCH B", "STRIKE 1 PARTIAL", "STRIKE 1 VELOCITY", "STRIKE 1 SHAPE", "STRIKE 1 LEVEL",
     "STRIKE 2 PARTIAL", "STRIKE 2 VELOCITY", "STRIKE 2 SHAPE", "STRIKE 2 LEVEL", "GRID A RULE", "GRID B RULE",
     "GRID A SPEED", "GRID B SPEED", "FG1 RATE", "FG2 RATE", "FG3 RATE", "FG4 RATE", "QUAD RATE",
@@ -1611,6 +1641,9 @@ static const char *const DST_NAME[NDST] = {"TILT", "STRETCH", "OUT LEVEL", "SPLI
     "GRID A MUTATION", "GRID B MUTATION"
 #ifdef QUORUM_ANDROID
     , "EG1 LENGTH", "EG2 LENGTH", "EG3 LENGTH", "EG4 LENGTH"
+#endif
+#ifdef QUORUM_HW
+    , "LOW PASS A", "LOW PASS B"
 #endif
     };
 static uint32_t isqrt32(uint32_t v) { uint32_t r = 0, b = 1u << 30; while (b > v) b >>= 2; while (b) { if (v >= r + b) { v -= r + b; r = (r >> 1) + b; } else r >>= 1; b >>= 2; } return r; }
@@ -1859,7 +1892,11 @@ static uint32_t page_subs(uint32_t pg)
     return 1u;
 }
 static uint32_t mrow, mcol, mtop, mleft;        /* (mcol, mleft: places in DORD, the order the page shows) */
-static const uint8_t DORD[NDST] = {D_TILT, D_STR, D_LVL, D_SPLIT, D_FILTA, D_FILTB, D_PANA, D_PANB, D_PITA, D_PITB,
+static const uint8_t DORD[NDST] = {D_TILT, D_STR, D_LVL, D_SPLIT, D_FILTA, D_FILTB,
+#ifdef QUORUM_HW
+    D_LPFA, D_LPFB,                             /* (beside the vowels) */
+#endif
+    D_PANA, D_PANB, D_PITA, D_PITB,
     D_K1PART, D_K1VEL, D_K1SHP, D_K1LVL, D_K2PART, D_K2VEL, D_K2SHP, D_K2LVL, D_RULA, D_RULB, D_MUTA, D_MUTB, D_SPDA, D_SPDB,
     D_FG1, D_FG2, D_FG3, D_FG4,
 #ifdef QUORUM_ANDROID
@@ -1875,7 +1912,11 @@ static uint32_t page_banks(uint32_t pg, uint32_t sb)
     if (pg == PG_GRID) return 2u;
     if (pg == PG_STRIKE) return 3u;             /* SOUND, ENVELOPE, TRILL */
     if (pg == PG_SEQ) return sb < NSEQ ? 2u : 1u;   /* STEPS, PLAY; KEYS: one */
+#ifdef QUORUM_HW
+    if (pg == PG_SPLIT) return sb ? 3u : 1u;    /* VOWEL, LOW PASS, OUT */
+#else
     if (pg == PG_SPLIT) return sb ? 2u : 1u;
+#endif
     if (pg == PG_FX) return sb == 2u ? 3u : sb < 2u ? 2u : 1u;
     return 1u;
 }
@@ -1885,7 +1926,7 @@ enum { F_INT, F_SLEW, F_TILT, F_STR, F_PCT, F_GMODE, F_GRATE, F_MUT, F_ONOFF, F_
        F_DEC, F_FALL, F_SER, F_LSRC, F_OP, F_ROUTE, F_SRULE, F_POINT, F_WIDTH, F_SOFT, F_PMODE, F_FREQ, F_RES, F_BW,
        F_PAN, F_SEMI, F_CENT, F_CLK, F_TEMPO, F_PHOS, F_BRIGHT, F_BITS, F_TUN, F_SCL, F_SROOT, F_COUNT, F_SPACE, F_TPAT,
        F_GOP, F_GMODE2, F_RATE, F_DUTY, F_FGT, F_CURVE, F_FMODE, F_SSGIN, F_DEPTH, F_QRATE, F_STEPN, F_SDIR, F_SADDR,
-       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_SCLK, F_ODDS, F_DRIVE, F_TEN, F_DRAW, F_HWCLK, F_HWCPU, F_NONE };   /* (F_SCAN, F_DARK:
+       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_SCLK, F_ODDS, F_DRIVE, F_TEN, F_DRAW, F_HWCLK, F_HWCPU, F_LPON, F_LCUT, F_NONE };   /* (F_SCAN, F_DARK:
        Android) */
 typedef struct { const char *name; uint8_t *p; int16_t lo, hi; uint8_t fmt, step; } kn_t;
 #ifdef QUORUM_ANDROID
@@ -1943,8 +1984,15 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
                         kn_set(2, "WIDTH", &P.swidth, 2, 50, F_WIDTH, 1); kn_set(3, "SOFT", &P.ssoft, 0, 36, F_SOFT, 1); }
         else {
             ppar_t *q = &P.pth[sb - 1u];
+#ifdef QUORUM_HW
+            if (!bk) { kn_set(0, "FILTER", &q->mode, 0, 1, F_PMODE, 1); kn_set(1, "VOWEL", &q->freq, 0, 127, F_FREQ, 4);
+                       kn_set(2, "RESO", &q->res, 0, 127, F_RES, 4); }
+            else if (bk == 1u) { kn_set(0, "LPF", &P.lpf[sb - 1u], 0, 1, F_LPON, 1); kn_set(1, "CUTOFF", &P.lcut[sb - 1u], 0, 127, F_LCUT, 4);
+                                 kn_set(2, "RESO", &P.lres[sb - 1u], 0, 127, F_PCT, 4); }
+#else
             if (!bk) { kn_set(0, "FILTER", &q->mode, 0, 3, F_PMODE, 1); kn_set(1, q->mode == 1u ? "VOWEL" : "FREQ", &q->freq, 0, 127, F_FREQ, 4);
                        kn_set(2, "RESO", &q->res, 0, 127, F_RES, 4); kn_set(3, "BW", &q->bw, 0, 40, F_BW, 2); }
+#endif
             else { kn_set(0, "LEVEL", &q->level, 0, 127, F_PCT, 1); kn_set(1, "PAN", &q->pan, 0, 127, F_PAN, 1);
                    kn_set(2, "PITCH", &q->coarse, -24, 24, F_SEMI, 1); kn_set(3, "FINE", &q->fine, -50, 50, F_CENT, 1); }
         }
@@ -2155,6 +2203,10 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_DRIVE: s_cat(s, v ? "HARD DISK" : "FLOPPY"); break;
     case F_HWCLK: s_cat(s, v ? "31.2K" : "23.4K"); break;
     case F_HWCPU: s_cat(s, v ? "FAST" : "SLOW"); break;
+#ifdef QUORUM_HW
+    case F_LPON: s_cat(s, v ? "IN" : "OUT"); break;
+    case F_LCUT: s_hz(s, (uint32_t)hwf_hz((float)(v * 2))); break;
+#endif
     case F_TEN: if (!v) s_cat(s, "OFF"); else s_int(s, v); break;
     case F_DRAW: if (!v) s_cat(s, "INSTANT"); else { s_int(s, v * 80); s_cat(s, "MS"); } break;
     case F_SCLK: if (v <= 10) { s_cat(s, P.clk_midi ? "MIDI/" : "MAST/"); s_int(s, DIVS[v]); }   /* (a slew sequencer's own) */
@@ -3046,7 +3098,16 @@ static void draw_split(void)
                 cv_rect(24 + (int32_t)h * 3, 120 - r * 110 / 256, 2, 2, PH_MID);
             }
         }
+#ifdef QUORUM_HW
+        if (P.lpf[k])                           /* the low pass, as it stands now (the matrix moving it), brighter */
+            for (h = 0; h < NP; h++) {
+                int32_t r = (int32_t)(hwf_mag((float)hw_lcut_v[k], (float)hw_lres_v[k], k, (float)q_hz(pq_now[h])) * 256.0f);
+                cv_rect(24 + (int32_t)h * 3, 120 - cl(r, 0, 400) * 110 / 400, 2, 2, PH_HI);
+            }
+        s[0] = 0; s_cat(s, q->mode == 1u ? (P.lpf[k] ? "VOWEL+LPF" : "VOWEL") : P.lpf[k] ? "LPF" : "OFF"); s_cat(s, "  PITCH "); s_sdec(s, q->coarse, 1u, 0u); s_cat(s, "ST ");
+#else
         s[0] = 0; s_cat(s, PM_NAME[q->mode & 3u]); s_cat(s, "  PITCH "); s_sdec(s, q->coarse, 1u, 0u); s_cat(s, "ST ");
+#endif
         s_sdec(s, q->fine, 1u, 0u); s_cat(s, "C");
         cv_text(4, 126, &FONT_S, s, PH_MID);
         s[0] = 0;
@@ -3556,6 +3617,11 @@ static void patch_clean(void)                   /* a loaded patch's values in ra
         q->mode &= 3u; q->part = (uint8_t)cl(q->part, 1, 32); q->vel &= 127u; q->level &= 127u; q->shape &= 127u;
         q->decay &= 127u; q->fall &= 127u; q->series %= 3u; q->filt &= 1u;
         t->mode &= 3u; t->freq &= 127u; t->res &= 127u; t->bw &= 127u; t->level &= 127u; t->pan &= 127u;
+#ifdef QUORUM_HW
+        if (t->mode >= 2u) { P.lpf[k] = 1; P.lcut[k] = t->freq; P.lres[k] = t->res; t->mode = 0; }   /* (a patch from
+                                                   before: its band pass is gone; the low pass in its place, where it stood) */
+        P.lpf[k] &= 1u; P.lcut[k] &= 127u; P.lres[k] &= 127u;
+#endif
         t->coarse = (int8_t)cl(t->coarse, -24, 24); t->fine = (int8_t)cl(t->fine, -50, 50);
         P.qon[k] &= 1u; P.glide[k] &= 127u;
         P.kbd[k] &= 1u; P.droot[k] = (uint8_t)cl(P.droot[k], 12, 96);
@@ -3599,6 +3665,9 @@ static void init_patch(void)                    /* INIT: the grids, two plain pa
     for (k = 0; k < NGS; k++) P.gmat[k] = 0;
     P.qon[0] = P.qon[1] = 0;
     P.pth[0].mode = P.pth[1].mode = 0;
+#ifdef QUORUM_HW
+    P.lpf[0] = P.lpf[1] = 0; P.lcut[0] = P.lcut[1] = 100; P.lres[0] = P.lres[1] = 20;
+#endif
     P.pth[0].pan = 40; P.pth[1].pan = 88;
 }
 
@@ -3638,8 +3707,15 @@ static void randomize(void)
 #endif
         g->mut = (uint8_t)(rnd(2) ? 0 : rnd_in(1, rnd_wild ? 12 : 4));
         g->rescue = 1; g->dens = (uint8_t)rnd_in(30, 65); g->shift = (uint8_t)(rnd(3) ? 0 : rnd(32));
+#ifdef QUORUM_HW
+        if (rnd_wild) { t->mode = (uint8_t)(rnd(4) == 0u); t->freq = (uint8_t)rnd_in(20, 110); t->res = (uint8_t)rnd(110); }   /* (the
+                                                   vowel: about as often as it was) */
+        else { t->mode = (uint8_t)(rnd(3) == 0u); t->freq = (uint8_t)rnd_in(40, 100); t->res = (uint8_t)rnd(50); }
+        P.lpf[k] = 0; P.lcut[k] = (uint8_t)(rnd_wild ? rnd_in(50, 108) : rnd_in(62, 104)); P.lres[k] = (uint8_t)(rnd_wild ? rnd(105) : rnd(60));
+#else
         if (rnd_wild) { t->mode = (uint8_t)(rnd(5) ? 1u + rnd(3) : 0u); t->freq = (uint8_t)rnd_in(20, 110); t->res = (uint8_t)rnd(110); }
         else { t->mode = (uint8_t)(rnd(3) == 0u ? 0u : rnd(2) ? 1u : 2u); t->freq = (uint8_t)rnd_in(40, 100); t->res = (uint8_t)rnd(50); }
+#endif
         t->bw = (uint8_t)rnd_in(8, 40);
         t->level = (uint8_t)rnd_in(70, 115);
         t->pan = (uint8_t)(k ? rnd_in(66, 110) : rnd_in(18, 62));
@@ -3692,6 +3768,16 @@ static void randomize(void)
     P.rt.order = (uint8_t)rnd(6); P.rt.link1 = (uint8_t)(rnd(2) ? 0 : rnd(90)); P.rt.link2 = (uint8_t)rnd(80);
     /* the drone's movement: the quad on the filters (or the pans), slow FGs on the level and the tilt, 3..7 pins */
     if (rnd(4)) { pin(S_QUAD(0), D_FILTA, rnd_in(12, 40)); pin(S_QUAD(2), D_FILTB, rnd_in(12, 40)); }
+#ifdef QUORUM_HW
+    if (rnd(100) < 38u) {                       /* the low passes: 38 rolls in 100 have one in (A, B or both, a third each),
+                                                   and most of those have something slow moving its cutoff */
+        uint32_t w = rnd(3);
+        for (k = 0; k < 2u; k++) if (w == 2u || w == k) {
+            P.lpf[k] = 1;
+            if (rnd(3)) pin(S_QUAD(k ? 3u : 1u), D_LPFA + k, rnd(2) ? rnd_in(10, 36) : -rnd_in(10, 36));
+        }
+    }
+#endif
     else { pin(S_QUAD(0), D_PANA, rnd_in(20, 50)); pin(S_QUAD(2), D_PANB, rnd_in(20, 50)); }
     if (rnd(3)) P.dep[S_FG(rnd(NFG))][D_LVL] = (int8_t)-rnd_in(8, 25);   /* (down from full: a swell) */
     for (n = (uint32_t)rnd_in(1, 5); n; n--) {
@@ -4095,7 +4181,7 @@ static void after_change(uint32_t pg, uint32_t sb, uint32_t knob, uint32_t bk)
 #endif
 }
 #ifdef HW_PROBE
-static volatile uint32_t patch_req_probe;
+static volatile uint32_t patch_req_probe, probe_lpf;
 #endif
 static uint32_t icur = PG_VOICE;                /* the Index's cursor (Android: a tap sets it) */
 static void app_main(void)
@@ -4176,7 +4262,16 @@ static void app_main(void)
         touch_frame(&b);                        /* the finger: taps as the panel's own presses, or straight to a value */
         if (aset_dirty && fm1_ms - t_aset > 1000u) { aset_dirty = 0; aset_save(); }
 #ifdef HW_PROBE
-        if (patch_req_probe) { rnd_s = 0xC0FFEE01u + 7919u * patch_req_probe; patch_req_probe = 0; patch_load(P_RANDOM); }
+        if (patch_req_probe >= 100000u) {       /* (tests: a path's LOW PASS bank on the screen, the filter in) */
+#ifdef QUORUM_HW
+            page = PG_SPLIT; sub = 1u + (patch_req_probe & 1u); bank = 1; hdr = 1; P.lpf[sub - 1u] = 1; P.lres[sub - 1u] = 96; P.lcut[sub - 1u] = 84;
+#endif
+            patch_req_probe = 0;
+        } else if (patch_req_probe) { rnd_s = 0xC0FFEE01u + 7919u * patch_req_probe; patch_req_probe = 0; patch_load(P_RANDOM); probe_lpf = 0;
+#ifdef QUORUM_HW
+            probe_lpf = 4u | P.lpf[0] | (uint32_t)P.lpf[1] << 1;
+#endif
+        }
 #endif
 #endif
         shift = (fm1_in.buttons >> BTN_SEL) & 1u;

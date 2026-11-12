@@ -9,7 +9,10 @@ finger as a Fairlight-style lightpen.
 `hw-engine` rebuilds the sound engine as the machine it might have been in 1982 (`engine/android/android_hw.h`, which
 describes it board by board): one time-multiplexed partial card with 20-bit phase accumulators and a log-sine ROM, no
 multipliers (levels are added as attenuations, an exponent ROM brings them back), an output board and DAC a path with
-the filters after the converters, an envelope board counting in dB, and an 8-bit CPU writing to them. Global: ENGINE
+an envelope board counting in dB, and an 8-bit CPU writing to them. After each path's DAC and before its VCA is an
+analogue low pass, a modelled SSM2040 four-pole (`engine/android/android_ssm.h`): PATH A / B, bank 2 switches it in
+and sets its cutoff and resonance, LOW PASS A / B on the mod matrix move the cutoff, and the two are a little apart
+as two real ones would be. (It replaces the band pass; the vowel stays, on the partials.) Global: ENGINE
 switches the revision (V1 8 bit, V2 12 bit), the sample clock (23.4 / 31.25 kHz) and the CPU's rate (SLOW / FAST). The
 effects are as they were. It installs beside Quorum as **Quorum HW** (its own patches); its builds are on the
 **dev-build-hw** release.

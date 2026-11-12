@@ -1045,4 +1045,5 @@ static void touch_draw(void)                    /* on the body's canvas (y from 
 }
 #ifdef HW_PROBE
 void quorum_probe_rand(int32_t n) { patch_req_probe = (uint32_t)n; }
+int32_t quorum_probe_lpf(void) { return (int32_t)probe_lpf; }
 #endif

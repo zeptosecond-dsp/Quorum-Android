@@ -13,8 +13,9 @@
  *                  EXPONENT ROM with a shifter behind it brings the sum back to a linear word. Levels are 8-bit codes,
  *                  0.75 dB a step (eight to the 6 dB), 255 = off.
  *   OUTPUT BOARDS  Two, one a path: each its own level RAM, exponent ROM, accumulator (cleared every sample, it
- *                  saturates) and DAC. The paths never meet as numbers. After each DAC: the path's filter (as it was,
- *                  now analogue's place: it runs on the converter's output), its level and pan, the mix.
+ *                  saturates) and DAC. The paths never meet as numbers. After each DAC: the path's analogue low
+ *                  pass (an SSM2040 four-pole, android_ssm.h; it can be switched out), its VCA and pan, the mix.
+ *                  (The vowel is the level computer's: weights on the partials, before any of this.)
  *   LEVEL COMPUTER The envelope board, every 16 samples (24 at the faster clock): about 1.4 kHz. A partial's grid
  *                  level and its two strike levels are attenuations in up / down counters: a decay is a straight line
  *                  in dB (an exponential in level, for nothing), a rise is a straight line too (it starts quietly and
@@ -22,7 +23,7 @@
  *                  the vowel are attenuations the CPU writes (the sends), each stepping a code a tick toward what was
  *                  written; a small log / exponent pass adds grid + strike 1 + strike 2 into the one code a partial
  *                  has on each path.
- *   CONTROL DACS   The filters' cutoff and resonance, each path's level and pan: 8-bit DACs with a small capacitor on
+ *   CONTROL DACS   The low passes' cutoff and resonance, each path's level and pan: 8-bit DACs with a small capacitor on
  *                  each output (about 3 ms). The CPU's writes step; the voltages do not, so moving them does not click.
  *   CPU            An 8-bit processor works out every partial's frequency word, its grid level and its sends, and
  *                  writes them to the boards: about 61 times a second (Global: ENGINE, CPU: SLOW; pitch and timbre
@@ -35,6 +36,7 @@
  * The DACs: each bit's weight a little off (fixed, a part's own), a staircase out (held, no oversampling): the phone's
  * 44.1 kHz takes each of its samples as the staircase's mean over that time. The effects are as they were. */
 #include <math.h>
+#include "android_ssm.h"                        /* (each path's analogue low pass) */
 
 #define HW_OFF (255 << 16)                      /* an attenuation: 8-bit code << 16; 255: silent */
 #define HW_FLOOR (128 << 16)                    /* -96 dB: under it, off */
@@ -229,16 +231,6 @@ static void hw_osc(int32_t *aa, int32_t *ab, uint32_t n)   /* the partial card: 
     }
 }
 
-static int32_t hw_svf(svf_t *s, int32_t x, int32_t f, int32_t q)   /* svf_bp, a step a sample (it runs at 44.1 kHz now) */
-{
-    int32_t hp = x - s->lo - (int32_t)(((int64_t)q * s->bp) >> 14);
-    s->bp += (int32_t)(((int64_t)f * hp) >> 14);
-    s->bp = cl(s->bp, -3000000, 3000000);
-    s->lo += (int32_t)(((int64_t)f * s->bp) >> 14);
-    s->lo = cl(s->lo, -3000000, 3000000);
-    return (int32_t)(((int64_t)s->bp * q) >> 14);
-}
-
 static void render(int32_t *out)                /* SUB frames at 44.1 kHz */
 {
     const int32_t qm = hw_ver == 1u ? ~255 : ~15;   /* (the effects' own word, as it was) */
@@ -282,25 +274,23 @@ static void render(int32_t *out)                /* SUB frames at 44.1 kHz */
         } else { x[0] = hw_cur[0]; x[1] = hw_cur[1]; }
         hw_pos = np;
         for (k = 0; k < 2u; k++) {
-            /* the filter's cutoff and resonance, the level and the pan are voltages from 8-bit control DACs, each
-             * with a small capacitor on its output (about 3 ms): the CPU's writes step, the voltage does not, so a
-             * level or a pan or a cutoff being moved quickly does not click */
-            static int32_t cv[2][7];
+            /* the level and the pan are voltages from 8-bit control DACs, each with a small capacitor on its output
+             * (about 3 ms): the CPU's writes step, the voltage does not, so one moved quickly does not click. (The low
+             * pass's two have theirs in android_ssm.h.) */
+            static int32_t cv[2][3];
             static uint32_t cv_init = 1;
-            const int32_t tg[7] = {pf_v[k][0], pf_v[k][1], pq_v[k], pmk_v[k], pgl_v[k], pgr_v[k], plv_v[k]};
-            uint32_t m = pm_v[k], j;
+            const int32_t tg[3] = {pgl_v[k], pgr_v[k], plv_v[k]};
+            uint32_t j;
             int32_t y = x[k];
-            if (cv_init) { uint32_t a, b; for (a = 0; a < 2u; a++) for (b = 0; b < 7u; b++) cv[a][b] = -1; cv_init = 0; }
-            for (j = 0; j < 7u; j++) cv[k][j] = cv[k][j] < 0 ? tg[j] << 8 : cv[k][j] + (((tg[j] << 8) - cv[k][j]) >> 7);
-            if (m >= 2u) {
-                y = hw_svf(&svf[k][0], y, cv[k][0] >> 8, cv[k][2] >> 8);
-                if (m == 3u) y = hw_svf(&svf[k][1], y, cv[k][1] >> 8, cv[k][2] >> 8);
-                y = (y * (cv[k][3] >> 8)) >> 12;
-            }
+            if (cv_init) { uint32_t a, b; for (a = 0; a < 2u; a++) for (b = 0; b < 3u; b++) cv[a][b] = -1; cv_init = 0; }
+            for (j = 0; j < 3u; j++) cv[k][j] = cv[k][j] < 0 ? tg[j] << 8 : cv[k][j] + (((tg[j] << 8) - cv[k][j]) >> 7);
+            if (hw_lon_v[k])                    /* the path's low pass, if it is switched in: after the DAC, before the VCA */
+                y = (int32_t)lrintf(hwf_run(&hw_flt[k], k, (float)y * (1.0f / 65536.0f), (float)hw_lcut_v[k], (float)hw_lres_v[k]) * 65536.0f);
+            else hw_flt[k].on = 0;
             y = cl(y, -200000, 200000);
-            l += (y * (cv[k][4] >> 8)) >> 15;
-            r += (y * (cv[k][5] >> 8)) >> 15;
-            y = (y * (cv[k][6] >> 8)) >> 15;    /* the sends: after the level, before the pan */
+            l += (y * (cv[k][0] >> 8)) >> 15;
+            r += (y * (cv[k][1] >> 8)) >> 15;
+            y = (y * (cv[k][2] >> 8)) >> 15;    /* the sends: after the level, before the pan */
             for (f = 0; f < 3; f++) sn[f] += y * sg[k][f];
         }
         for (f = 0; f < 3; f++) {               /* the effects take theirs at 22.05 kHz, in their own word, as before */
