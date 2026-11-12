@@ -191,7 +191,7 @@ static void aset_load(void)
     if (aset.pen > 1u) aset.pen = 1;
     if (aset.lines > 4u) aset.lines = 2;
     if (aset.dark > 10u) aset.dark = 6;
-    aset.vint &= 1u; if (aset.odds > 2u) aset.odds = 1; aset.drive &= 1u;
+    aset.vint &= 1u; if (aset.odds > 2u) aset.odds = 1; aset.drive &= 1u; aset.hwclk &= 1u; aset.hwcpu &= 1u;
     if (aset.burn > 10u) aset.burn = 0; if (aset.persist > 10u) aset.persist = 0; if (aset.draw > 10u) aset.draw = 3; aset.warm &= 1u;
 }
 static void aset_save(void) { q_save("android", -1, &aset, sizeof aset, SECTOR_MAX); }

@@ -46,6 +46,18 @@ jobs:
             --title "Dev build ${{ github.run_number }}" \
             --notes "Built from ${GITHUB_SHA::7}: $COMMIT_MSG"
 
+      - name: Publish the hardware fork's build
+        if: github.ref == 'refs/heads/hw-engine'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk quorum-hw-dev.apk
+          gh release delete dev-build-hw --yes --cleanup-tag || true
+          gh release create dev-build-hw quorum-hw-dev.apk --prerelease --target "$GITHUB_SHA" \
+            --title "Hardware fork build ${{ github.run_number }}" \
+            --notes "Built from ${GITHUB_SHA::7} (branch hw-engine): $COMMIT_MSG"
+
       - uses: actions/upload-artifact@v4
         with:
           name: quorum-apk

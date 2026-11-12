@@ -12,7 +12,8 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 13
-        versionName = "1.2"
+        versionName = "1.2-hw1"
+        applicationIdSuffix = ".hw"             // the hardware fork: installs beside Quorum, with its own patches
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DANDROID_STL=c++_shared")

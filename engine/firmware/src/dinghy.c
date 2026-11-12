@@ -36,7 +36,11 @@
  * Rules of the road (the chip has no FPU and no libgcc): integers only, no float, no 64-bit division.
  * tests/host.c runs this file on a computer: the screen as a PNG, the sound as a WAV. */
 #define APP_NAME "QUORUM"
+#ifdef QUORUM_ANDROID
+#define Q_VERSION "HW 0.1"                      /* (the hardware fork: engine/android/android_hw.h) */
+#else
 #define Q_VERSION "1.1.1"
+#endif
 static void app_idle(void);
 #define LCD_IDLE app_idle                       /* while the screen's DMA runs: the clock and MIDI keep going */
 #define CV_MAX (240u * 218u)                    /* the page body's canvas */
@@ -849,11 +853,18 @@ static void fg_step(uint32_t k, uint32_t g)     /* one FG, one block: S6's Serge
 /* the strikes in the interrupt: a gate's rise starts a trill (one hit, or COUNT hits SPACE apart with a velocity
  * pattern); Bow / Breath hold while the gate is high */
 static uint32_t kgprev[2], kman_seen[2], tr_left[2], tr_i[2], tr_wait[2];
+#ifdef QUORUM_ANDROID
+static void hw_strike_hit(uint32_t s, int32_t v);
+#endif
 static void strike_hit(uint32_t s, int32_t v)   /* kick every member, v = the hit's velocity (Q15) */
 {
     uint32_t h;
     for (h = 0; h < NP; h++) {
         int32_t add = (int32_t)(((int64_t)kamp_t[s][h] * v) >> 15), pk, n;
+#ifdef QUORUM_ANDROID
+        hw_strike_hit(s, v);                    /* (the hardware fork: the level computer's counters take the hit) */
+        return;
+#endif
         if (add <= 0) continue;
         pk = knee((ke[s][h] >> 8) + add);
         n = katt_v[s][h] ? katt_v[s][h] : 1;
@@ -1322,6 +1333,9 @@ static int32_t soft_out(int32_t x)              /* linear to 20000, then bending
     y = 20000 + a * 12000 / (a + 12000);
     return x < 0 ? -y : y;
 }
+#ifdef QUORUM_ANDROID
+#include "android_hw.h"                         /* (the hardware fork: its own render()) */
+#else
 static void render(int32_t *out)                /* SUB frames at 44.1 kHz: 16 computed, each held twice */
 {
     const uint32_t nf = SUB / 2u, bq = bits_v;
@@ -1453,6 +1467,7 @@ static void render(int32_t *out)                /* SUB frames at 44.1 kHz: 16 co
         for (i = 0; i < 2u * SUB; i++) out[i] = (soft_out(out[i]) + qh) & qm;   /* and out, in the engine's words */
     }
 }
+#endif
 
 static void app_audio(int32_t *out, uint32_t n)
 {
@@ -1867,7 +1882,7 @@ enum { F_INT, F_SLEW, F_TILT, F_STR, F_PCT, F_GMODE, F_GRATE, F_MUT, F_ONOFF, F_
        F_DEC, F_FALL, F_SER, F_LSRC, F_OP, F_ROUTE, F_SRULE, F_POINT, F_WIDTH, F_SOFT, F_PMODE, F_FREQ, F_RES, F_BW,
        F_PAN, F_SEMI, F_CENT, F_CLK, F_TEMPO, F_PHOS, F_BRIGHT, F_BITS, F_TUN, F_SCL, F_SROOT, F_COUNT, F_SPACE, F_TPAT,
        F_GOP, F_GMODE2, F_RATE, F_DUTY, F_FGT, F_CURVE, F_FMODE, F_SSGIN, F_DEPTH, F_QRATE, F_STEPN, F_SDIR, F_SADDR,
-       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_SCLK, F_ODDS, F_DRIVE, F_TEN, F_DRAW, F_NONE };   /* (F_SCAN, F_DARK:
+       F_PHRATE, F_PHHZ, F_BIP, F_STAGES, F_DMS, F_ORDER, F_CRUSH, F_KRATE, F_RULE, F_SCAN, F_DARK, F_EGMODE, F_EGLEN, F_EGPOL, F_EGCRV, F_EGMK, F_NOTE, F_SCLK, F_ODDS, F_DRIVE, F_TEN, F_DRAW, F_HWCLK, F_HWCPU, F_NONE };   /* (F_SCAN, F_DARK:
        Android) */
 typedef struct { const char *name; uint8_t *p; int16_t lo, hi; uint8_t fmt, step; } kn_t;
 #ifdef QUORUM_ANDROID
@@ -2011,7 +2026,9 @@ static void knobs_for(uint32_t pg, uint32_t sb, uint32_t bk)
 #endif
 #ifdef QUORUM_ANDROID
         else if (sb == 4u) kn_set(0, "BPM", &P.tempo, 0, 255, F_TEMPO, 1);   /* (CLOCK: the master clock) */
-        else kn_set(0, "ENG VER", &P.engver, 1, 2, F_BITS, 1);   /* (no MIDI clock: parked) */
+        else { kn_set(0, "ENG VER", &P.engver, 1, 2, F_BITS, 1);   /* (no MIDI clock: parked) */
+               kn_set(1, "CLOCK", &aset.hwclk, 0, 1, F_HWCLK, 1); kn_set(2, "CPU", &aset.hwcpu, 0, 1, F_HWCPU, 1); }   /* (the hardware
+                                                   fork: the sample clock, the CPU's rate) */
 #else
         else { kn_set(0, "ENG VER", &P.engver, 1, 2, F_BITS, 1); kn_set(1, "CLOCK", &P.clk_midi, 0, 1, F_CLK, 1);
                }
@@ -2133,6 +2150,8 @@ static void kn_text(char *s, const kn_t *k, uint32_t pathk)
     case F_NOTE: s_note(s, (uint32_t)v); break;
     case F_ODDS: { static const char *const O[3] = {"NEW", "OK", "BAD"}; s_cat(s, O[v % 3]); } break;
     case F_DRIVE: s_cat(s, v ? "HARD DISK" : "FLOPPY"); break;
+    case F_HWCLK: s_cat(s, v ? "31.2K" : "23.4K"); break;
+    case F_HWCPU: s_cat(s, v ? "FAST" : "SLOW"); break;
     case F_TEN: if (!v) s_cat(s, "OFF"); else s_int(s, v); break;
     case F_DRAW: if (!v) s_cat(s, "INSTANT"); else { s_int(s, v * 80); s_cat(s, "MS"); } break;
     case F_SCLK: if (v <= 10) { s_cat(s, P.clk_midi ? "MIDI/" : "MAST/"); s_int(s, DIVS[v]); }   /* (a slew sequencer's own) */
@@ -3254,7 +3273,12 @@ static void draw_engine(void)                   /* GLOBAL: ENGINE: the hardware 
     cv_begin(240, BODY_H, PH_BG);
     s[0] = 0; s_cat(s, "ENGINE VER: "); s_cat(s, P.engver == 1u ? "V1 (8 BIT)" : "V2 (12 BIT)");
     cv_text(4, 2, &FONT_S, s, PH_HI);
+#ifdef QUORUM_ANDROID
+    s[0] = 0; s_cat(s, P.engver == 1u ? "8B ROMS+DACS, " : "12B ROMS+DACS, "); s_cat(s, aset.hwclk ? "31.25 KHZ" : "23.44 KHZ");
+    cv_text(4, 20, &FONT_S, s, PH_LO);
+#else
     cv_text(4, 20, &FONT_S, P.engver == 1u ? "256 LEVELS, 22.05 KHZ" : "4096 LEVELS, 22.05 KHZ", PH_LO);
+#endif
     cv_rect(0, 40, 240, 1, PH_LO);
     cv_text(4, 46, &FONT_S, "AUDIO INTERRUPT", PH_MID);
     s[0] = 0; s_cat(s, "AVG "); s_dec(s, cpu_avg, 10u, 1u); s_cat(s, "%  PEAK "); s_dec(s, cpu_peak, 10u, 1u); s_cat(s, "%");
@@ -4060,7 +4084,7 @@ static void after_change(uint32_t pg, uint32_t sb, uint32_t knob, uint32_t bk)
     }
 #endif
 #ifdef QUORUM_ANDROID
-    if (pg == PG_GLOBAL && ((sb == 1u && knob >= 2u) || sb == 3u)) { aset_dirty = 1; t_aset = fm1_ms; }   /* (the phone's
+    if (pg == PG_GLOBAL && ((sb == 1u && knob >= 2u) || sb == 3u || (sb == 2u && knob >= 1u))) { aset_dirty = 1; t_aset = fm1_ms; }   /* (the phone's
                                                    own: its file) */
 #endif
 }

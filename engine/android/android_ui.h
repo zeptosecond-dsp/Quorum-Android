@@ -43,9 +43,10 @@ static void tgt_add2(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t kind, 
 typedef struct { uint8_t ver, lines, dark, pen; } aset1_t;   /* (the file as builds before the vintage page wrote it) */
 typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, pad; } aset3_t;   /* (before
                                                    CAPACITOR and FLYBACK) */
-typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, cap, fly, master, pad[2]; } aset_t;   /* (master:
+typedef struct { uint8_t ver, lines, dark, pen, vint, odds, drive, burn, persist, draw, warm, cap, fly, master, hwclk, hwcpu; } aset_t;   /* (hwclk, hwcpu: the
+                                                   hardware fork's sample clock (0: 23.4 kHz, 1: 31.25) and CPU (0 SLOW, 1 FAST))   /* (master:
                                                    the rack's MASTER LEVEL knob, 0..255; 212: unity) */
-static aset_t aset = {6, 2, 6, 1, 0, 1, 0, 2, 2, 3, 1, 2, 1, 212, {0, 0}};   /* (VINTAGE: a taste of everything, ready for
+static aset_t aset = {6, 2, 6, 1, 0, 1, 0, 2, 2, 3, 1, 2, 1, 212, 0, 0};   /* (VINTAGE: a taste of everything, ready for
                                                    the button: DISK OK, a little burn, persistence, capacitor, flyback) */   /* lines: 0..4 (240 .. 600 a screen); dark: 0..10; pen: the
                                                    lightpen's cursor; (Global: VINTAGE) vint: vintage mode (the button over
                                                    the keyboard), off until asked: the disk and the tube's faults all
